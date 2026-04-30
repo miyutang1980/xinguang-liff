@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>預約 50 分鐘精細檢測｜太平新光分校</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; font-family: -apple-system, "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+    background: #FFF8EB; color: #2D2A26; padding: 0; line-height: 1.5;
+  }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 24px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 6px; color: #C2410C; font-weight: 800; }
+  .sub { font-size: 14px; color: #6B6661; margin-bottom: 20px; }
+  .field { margin-bottom: 16px; }
+  label {
+    display: block; font-size: 14px; font-weight: 600;
+    color: #2D2A26; margin-bottom: 6px;
+  }
+  label .req { color: #DC2626; margin-left: 2px; }
+  input, select, textarea {
+    width: 100%; padding: 12px 14px; font-size: 16px;
+    border: 1.5px solid #E5E1DA; border-radius: 12px;
+    background: #fff; color: #2D2A26; font-family: inherit;
+    transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: #C2410C;
+  }
+  textarea { resize: none; min-height: 60px; }
+  .submit {
+    width: 100%; padding: 16px; font-size: 17px; font-weight: 700;
+    background: #C2410C; color: #fff; border: none; border-radius: 12px;
+    margin-top: 8px; cursor: pointer; box-shadow: 0 4px 14px rgba(194,65,12,.25);
+  }
+  .submit:active { transform: translateY(1px); }
+  .submit:disabled { background: #B8B2A8; box-shadow: none; }
+  .hint { font-size: 12px; color: #8B847A; margin-top: 4px; }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #2D2A26; color: #fff; padding: 12px 20px; border-radius: 8px;
+    font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none;
+    max-width: 90%; text-align: center;
+  }
+  .toast.show { opacity: 1; }
+  .ok-screen {
+    display: none; text-align: center; padding-top: 40px;
+  }
+  .ok-screen.show { display: block; }
+  .ok-screen .icon {
+    font-size: 56px; line-height: 1; margin-bottom: 16px;
+  }
+  .ok-screen h2 { font-size: 20px; margin: 0 0 8px; color: #166534; }
+  .ok-screen p { font-size: 14px; color: #6B6661; margin: 0 0 20px; }
+  .ok-screen .close {
+    background: #2D2A26; color: #fff; border: none; padding: 12px 24px;
+    border-radius: 10px; font-size: 14px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap" id="formWrap">
+  <h1>預約 50 分鐘精細檢測</h1>
+  <p class="sub">由 Sarah 老師 1 對 1 親自進行<br>填好下方 5 個欄位，我們會在 24 小時內聯絡您</p>
+
+  <form id="bookForm">
+    <div class="field">
+      <label>孩子姓名 <span class="req">*</span></label>
+      <input type="text" name="child_name" required maxlength="10" placeholder="例：王小明">
+    </div>
+
+    <div class="field">
+      <label>年級 <span class="req">*</span></label>
+      <select name="grade" required>
+        <option value="">請選擇</option>
+        <option value="小一">小一</option>
+        <option value="小二">小二</option>
+        <option value="小三">小三</option>
+        <option value="小四">小四</option>
+        <option value="小五">小五</option>
+        <option value="小六">小六</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>就讀國小 <span class="req">*</span></label>
+      <select name="school" required>
+        <option value="">請選擇</option>
+        <option>太平國小</option>
+        <option>新光國小</option>
+        <option>新平國小</option>
+        <option>新高國小</option>
+        <option>軍功國小</option>
+        <option>廍子國小</option>
+        <option>成功國小</option>
+        <option>進德國小</option>
+        <option>力行國小</option>
+        <option>北屯國小</option>
+        <option>東光國小</option>
+        <option value="其他">其他</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>家長聯絡電話 <span class="req">*</span></label>
+      <input type="tel" name="phone" required pattern="09[0-9]{8}" maxlength="10" placeholder="09xxxxxxxx">
+      <div class="hint">10 碼手機號碼，例：0912345678</div>
+    </div>
+
+    <div class="field">
+      <label>方便聯絡時段</label>
+      <select name="contact_time">
+        <option value="不指定">不指定（全天皆可）</option>
+        <option value="平日早上">平日早上 9:00–12:00</option>
+        <option value="平日下午">平日下午 13:00–17:00</option>
+        <option value="平日晚上">平日晚上 19:00–21:00</option>
+        <option value="週末">週末 9:00–17:00</option>
+      </select>
+    </div>
+
+    <button type="submit" class="submit" id="submitBtn">送出預約</button>
+    <div class="hint" style="text-align:center; margin-top:12px;">
+      送出後 24 小時內，Sarah 老師會主動 LINE 您安排時段
+    </div>
+  </form>
+</div>
+
+<div class="wrap ok-screen" id="okScreen">
+  <div class="icon">✓</div>
+  <h2>已收到您的預約</h2>
+  <p>Sarah 老師會在 24 小時內主動 LINE 您安排時段<br>請保持 LINE 暢通</p>
+  <button class="close" onclick="liff.closeWindow()">關閉視窗</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ========= 設定 =========
+// 部署完成後，把這個 URL 換成你的 Apps Script Web App URL（doPost endpoint）
+const SUBMIT_URL = 'https://script.google.com/macros/s/AKfycbzBbdEJeuODJ0f5MKeIs76rvVjJ-uLrbYlc6w_L_2CpJdAdnraml4Cj572_iHO2FmEe1w/exec';
+// LIFF ID（在 LINE Developers Console 開新 LIFF App 後填入）
+const LIFF_ID = 'YOUR_LIFF_ID_HERE';
+// =======================
+
+let lineProfile = null;
+
+async function initLiff() {
+  try {
+    await liff.init({ liffId: LIFF_ID });
+    if (liff.isLoggedIn()) {
+      lineProfile = await liff.getProfile();
+    }
+  } catch (e) {
+    console.warn('LIFF init failed (running in browser?)', e);
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2400);
+}
+
+document.getElementById('bookForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.textContent = '送出中…';
+
+  const fd = new FormData(e.target);
+  const payload = {
+    action: 'writeBooking',
+    child_name: fd.get('child_name'),
+    grade: fd.get('grade'),
+    school: fd.get('school'),
+    phone: fd.get('phone'),
+    contact_time: fd.get('contact_time'),
+    line_user_id: lineProfile ? lineProfile.userId : '',
+    line_display_name: lineProfile ? lineProfile.displayName : '',
+    submitted_at: new Date().toISOString(),
+    source: 'liff_booking_form_v1'
+  };
+
+  try {
+    const r = await fetch(SUBMIT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避免 CORS preflight
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json();
+    if (data.ok) {
+      document.getElementById('formWrap').style.display = 'none';
+      document.getElementById('okScreen').classList.add('show');
+      // 通知員工 LINE 群（可選：在 Apps Script 那邊用 LINE Notify）
+    } else {
+      throw new Error(data.error || '送出失敗');
+    }
+  } catch (err) {
+    showToast('網路有點不穩，請再試一次');
+    btn.disabled = false;
+    btn.textContent = '送出預約';
+  }
+});
+
+initLiff();
+</script>
+
+</body>
+</html>
