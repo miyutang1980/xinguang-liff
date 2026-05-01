@@ -260,7 +260,7 @@ function renderApproval() {
     const thumb = r['縮圖URL'] || '';
     html += `<tr>
       <td><div class="preview">
-        <img src="${thumb}" loading="lazy" alt="" onclick="openLightbox('${(r['圖片URL']||thumb).replace(/'/g,"\\'")}')" onerror="this.style.opacity=0.3;this.alt='縮圖載入失敗'">
+        <img src="${thumb}" loading="lazy" alt="" data-full="${(r['圖片URL']||thumb).replace(/"/g,'&quot;')}" onclick="openLightbox(this.getAttribute('data-full'))" onerror="this.style.opacity=0.3;this.alt='縮圖載入失敗'">
         <div class="text">
           <div class="topic">${escape_(r['主題'])}</div>
           <div class="platform">${escape_(r['平台'])} · ${escape_(r['比例'])}</div>
