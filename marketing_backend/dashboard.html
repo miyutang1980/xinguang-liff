@@ -393,18 +393,7 @@ function saveModal() {
   google.script.run.withSuccessHandler(() => { closeModal(); loadAll(); }).updateCopyText(rowNum, h, b, t);
 }
 
-function openLightbox(url) {
-  const lb = document.getElementById('lightbox');
-  const img = document.getElementById('lightbox-img');
-  // 轉換 Drive view URL 為 uc?export=view URL 拿原圖
-  let m = String(url).match(/\/file\/d\/([^\/]+)/);
-  if (m) {
-    img.src = 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w1600';
-  } else {
-    img.src = url;
-  }
-  lb.classList.add('show');
-}
+function openLightbox(url){var lb=document.getElementById('lightbox');var img=document.getElementById('lightbox-img');var m=String(url||'').match(/\/file\/d\/([^\/]+)/);img.src=m?('https://drive.google.com/thumbnail?id='+m[1]+'&sz=w1600'):url;lb.classList.add('show');}
 function closeLightbox() {
   document.getElementById('lightbox').classList.remove('show');
   document.getElementById('lightbox-img').src = '';
