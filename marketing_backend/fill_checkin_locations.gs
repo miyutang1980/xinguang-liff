@@ -84,7 +84,7 @@ function fillCheckinLocations() {
   sh.getRange(2, 22, totalRows, 1).setValues(updated);
 
   ui.alert(
-    '✅ 完成',
+    '✅ 完成\n\n' +
     `已為 ${totalRows} 列填入打卡地點。\n\n` +
     `打開 Posting_Queue → 看 V 欄（備註）：\n` +
     `[L01 新高國小・新光] Phase 1 暖身\n` +
