@@ -46,7 +46,14 @@
   .btn-sm{padding:4px 10px;font-size:12px}
   .row-actions{display:flex;gap:6px;flex-wrap:wrap}
   .preview{display:flex;gap:14px;align-items:flex-start}
-  .preview img{width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+  .preview img{width:120px;height:120px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in;transition:transform .15s}
+  .preview img:hover{transform:scale(1.05);box-shadow:0 4px 12px rgba(0,0,0,.15)}
+  .lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:200;align-items:center;justify-content:center;cursor:zoom-out}
+  .lightbox.show{display:flex}
+  .lightbox img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  .lightbox .close-hint{position:absolute;top:20px;right:20px;color:#fff;font-size:14px;background:rgba(0,0,0,.5);padding:8px 14px;border-radius:6px}
+  .btn-folder{background:#34a853;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;text-decoration:none;display:inline-block;margin-right:4px}
+  .btn-folder:hover{opacity:.85}
   .preview .text{flex:1;min-width:0}
   .preview .topic{font-weight:700;color:var(--navy);margin-bottom:4px}
   .preview .platform{font-size:11px;color:var(--gray);margin-bottom:6px}
@@ -169,6 +176,12 @@
   </div>
 </div>
 
+<!-- Lightbox 點圖放大 -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <div class="close-hint">點一下或按 ESC 關閉</div>
+  <img id="lightbox-img" src="" alt="">
+</div>
+
 <script>
 let allQueue = [];
 let allInteractions = [];
@@ -247,14 +260,14 @@ function renderApproval() {
     const thumb = r['縮圖URL'] || '';
     html += `<tr>
       <td><div class="preview">
-        <img src="${thumb}" loading="lazy" alt="">
+        <img src="${thumb}" loading="lazy" alt="" onclick="openLightbox('${(r['圖片URL']||thumb).replace(/'/g,"\\'")}')" onerror="this.style.opacity=0.3;this.alt='縮圖載入失敗'">
         <div class="text">
           <div class="topic">${escape_(r['主題'])}</div>
           <div class="platform">${escape_(r['平台'])} · ${escape_(r['比例'])}</div>
           <div class="copy">${escape_(String(r['文案_內文']||r['文案_主標']||'').substring(0,80))}</div>
         </div>
       </div></td>
-      <td>${escape_(r['asset_id'])}</td>
+      <td>${escape_(r['asset_id'])}${r['進件資料夾URL']?`<br><a class="btn-folder" href="${r['進件資料夾URL']}" target="_blank">📁 進件</a>`:''}</td>
       <td>${escape_(r['排程日期'])}<br>${escape_(r['排程時間'])}</td>
       <td><span class="pill ${r['圖片審核']}">${r['圖片審核']}</span></td>
       <td><span class="pill ${r['文案審核']}">${r['文案審核']}</span></td>
@@ -379,6 +392,24 @@ function saveModal() {
   const t = document.getElementById('modal-tags').value;
   google.script.run.withSuccessHandler(() => { closeModal(); loadAll(); }).updateCopyText(rowNum, h, b, t);
 }
+
+function openLightbox(url) {
+  const lb = document.getElementById('lightbox');
+  const img = document.getElementById('lightbox-img');
+  // 轉換 Drive view URL 為 uc?export=view URL 拿原圖
+  let m = String(url).match(/\/file\/d\/([^\/]+)/);
+  if (m) {
+    img.src = 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w1600';
+  } else {
+    img.src = url;
+  }
+  lb.classList.add('show');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('show');
+  document.getElementById('lightbox-img').src = '';
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
 
 function escape_(s) {
   if (s === undefined || s === null) return '';
