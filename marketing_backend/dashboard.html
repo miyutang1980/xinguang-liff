@@ -393,7 +393,21 @@ function saveModal() {
   google.script.run.withSuccessHandler(() => { closeModal(); loadAll(); }).updateCopyText(rowNum, h, b, t);
 }
 
-function openLightbox(url){var lb=document.getElementById('lightbox');var img=document.getElementById('lightbox-img');var m=String(url||'').match(/\/file\/d\/([^\/]+)/);img.src=m?('https://drive.google.com/thumbnail?id='+m[1]+'&sz=w1600'):url;lb.classList.add('show');}
+function openLightbox(url){
+  var lb = document.getElementById('lightbox');
+  var img = document.getElementById('lightbox-img');
+  var s = String(url || '');
+  var m = s.match(/\/file\/d\/([^\/]+)/);
+  if (m) {
+    var proto = 'https' + ':';
+    var host = '//drive.google.com';
+    var path = '/thumbnail?id=' + m[1] + '&sz=w1600';
+    img.src = proto + host + path;
+  } else {
+    img.src = s;
+  }
+  lb.classList.add('show');
+}
 function closeLightbox() {
   document.getElementById('lightbox').classList.remove('show');
   document.getElementById('lightbox-img').src = '';
