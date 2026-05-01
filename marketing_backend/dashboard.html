@@ -251,7 +251,7 @@ function renderApproval() {
         <div class="text">
           <div class="topic">${escape_(r['主題'])}</div>
           <div class="platform">${escape_(r['平台'])} · ${escape_(r['比例'])}</div>
-          <div class="copy">${escape_(r['文案_主標'])}</div>
+          <div class="copy">${escape_(String(r['文案_內文']||r['文案_主標']||'').substring(0,80))}</div>
         </div>
       </div></td>
       <td>${escape_(r['asset_id'])}</td>
