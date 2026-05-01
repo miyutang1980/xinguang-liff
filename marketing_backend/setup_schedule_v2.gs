@@ -46,7 +46,7 @@ const P1_THEMES = [
 
 // ============ Phase 2：5/11-6/8 七月梯預告（29 天 D03-D31）============
 // 七月課程主題（D03-D31）
-const JUL_TOPICS = {
+const JUL_TOPICS_V2 = {
   d03: '動量與碰撞', d04: '彈性與形變', d05: '波與震動', d06: '透鏡與光路',
   d07: '反射與成像', d08: '酸鹼指示劑', d09: '溶解與飽和', d10: '結晶與析出',
   d11: '氧化與還原', d12: '分離過濾',   d13: '蒸發凝結',  d14: '燃燒火焰',
@@ -58,7 +58,7 @@ const JUL_TOPICS = {
 };
 
 // ============ Phase 3：6/9-7/5 八月梯預告（28 天 D01-D28）============
-const AUG_TOPICS = {
+const AUG_TOPICS_V2 = {
   d01: '拉力與張力', d02: '扭力與旋轉', d03: '動量碰撞',  d04: '彈性形變',
   d05: '波與震動',   d06: '透鏡光路',   d07: '反射成像',  d08: '酸鹼指示',
   d09: '溶解飽和',   d10: '結晶析出',   d11: '氧化還原',  d12: '分離過濾',
@@ -122,11 +122,11 @@ function setupScheduleV2() {
   // ===== Phase 2 七月預告：5/11-6/8（29 天，D03-D31）=====
   // 每天 1x1 + 週六/週日 加發 9x16
   let day = new Date(2026, 4, 11); // 5/11
-  const julKeys = Object.keys(JUL_TOPICS).sort(); // d03-d31
+  const julKeys = Object.keys(JUL_TOPICS_V2).sort(); // d03-d31
   julKeys.forEach((dKey) => {
     const dateStr = fmtDate_(day);
     const wd = day.getDay(); // 0=Sun 6=Sat
-    const topic = JUL_TOPICS[dKey];
+    const topic = JUL_TOPICS_V2[dKey];
 
     // 1x1 必發
     const a1 = ASSETS.jul[dKey + '_1x1'];
@@ -168,11 +168,11 @@ function setupScheduleV2() {
 
   // ===== Phase 3 八月預告：6/9-7/6（D01-D28，每天 1x1 + 週末 9x16）=====
   day = new Date(2026, 5, 9); // 6/9
-  const augKeys = Object.keys(AUG_TOPICS).sort(); // d01-d28
+  const augKeys = Object.keys(AUG_TOPICS_V2).sort(); // d01-d28
   augKeys.forEach((dKey) => {
     const dateStr = fmtDate_(day);
     const wd = day.getDay();
-    const topic = AUG_TOPICS[dKey];
+    const topic = AUG_TOPICS_V2[dKey];
 
     const a1 = ASSETS.aug[dKey + '_1x1'];
     rows.push(buildRow_({
