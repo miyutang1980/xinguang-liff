@@ -202,7 +202,9 @@ function backfillFBHistorical() {
   const startTime = new Date().getTime();
   const TIMEOUT_MS = 5 * 60 * 1000;
 
-  let url = 'https://graph.facebook.com/v19.0/' + pageId + '/posts?fields=id,message,created_time,permalink_url,full_picture,attachments{media_type,media,subattachments}&limit=100&access_token=' + token;
+  // 注意：attachments{...} 這種 nested fields 的大括號要 URL encode
+  const fbFields = 'id,message,created_time,permalink_url,full_picture,attachments{media_type,media,subattachments}';
+  let url = 'https://graph.facebook.com/v19.0/' + pageId + '/posts?fields=' + encodeURIComponent(fbFields) + '&limit=100&access_token=' + token;
   let totalAdded = 0, totalSkipped = 0, pages = 0;
 
   while (url) {
