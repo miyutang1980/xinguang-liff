@@ -42,32 +42,49 @@ function getQueueData() {
   const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
   const last = sh.getLastRow();
   if (last < 2) return [];
-  // 固定讀 23 欄（A-W）、以欄頭為準。若 Sheet 還沒 W 欄、getRange 會自動填空、不會報錯
   const COL = 23;
-  const headers = sh.getRange(1, 1, 1, COL).getValues()[0];
+  const headers = sh.getRange(1, 1, 1, COL).getValues()[0].map(function(h){ return String(h || ''); });
   const data = sh.getRange(2, 1, last - 1, COL).getValues();
-  return data.map((r, i) => {
-    const o = { _row: i + 2 };
-    headers.forEach((h, j) => {
-      o[h] = (r[j] instanceof Date) ? Utilities.formatDate(r[j], 'Asia/Taipei', 'yyyy-MM-dd HH:mm') : r[j];
-    });
-    return o;
-  });
+  const out = [];
+  for (var i = 0; i < data.length; i++) {
+    var r = data[i];
+    var o = { _row: i + 2 };
+    for (var j = 0; j < headers.length; j++) {
+      var v = r[j];
+      if (v === null || v === undefined || v === '') {
+        o[headers[j]] = '';
+      } else if (v instanceof Date) {
+        o[headers[j]] = Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm');
+      } else if (typeof v === 'number' || typeof v === 'boolean') {
+        o[headers[j]] = v;
+      } else {
+        o[headers[j]] = String(v);
+      }
+    }
+    out.push(o);
+  }
+  // 強制走純 JSON 序列化、繞過 HtmlService 對複雜物件的緩慢序列化
+  return JSON.parse(JSON.stringify(out));
 }
 
 function getInteractionsData() {
   const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('互動紀錄 Interactions');
   const last = sh.getLastRow();
   if (last < 2) return [];
-  const headers = sh.getRange(1, 1, 1, 15).getValues()[0];
+  const headers = sh.getRange(1, 1, 1, 15).getValues()[0].map(function(h){return String(h||'');});
   const data = sh.getRange(Math.max(2, last - 99), 1, Math.min(100, last - 1), 15).getValues();
-  return data.map(r => {
-    const o = {};
-    headers.forEach((h, j) => {
-      o[h] = (r[j] instanceof Date) ? Utilities.formatDate(r[j], 'Asia/Taipei', 'yyyy-MM-dd HH:mm') : r[j];
-    });
-    return o;
-  });
+  const out = [];
+  for (var i = 0; i < data.length; i++) {
+    var r = data[i], o = {};
+    for (var j = 0; j < headers.length; j++) {
+      var v = r[j];
+      o[headers[j]] = (v === null || v === undefined || v === '') ? '' :
+        (v instanceof Date) ? Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm') :
+        (typeof v === 'number' || typeof v === 'boolean') ? v : String(v);
+    }
+    out.push(o);
+  }
+  return JSON.parse(JSON.stringify(out));
 }
 
 function getInsightsKPIs() {
@@ -92,15 +109,20 @@ function getBookingsData() {
   const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('預約 Bookings');
   const last = sh.getLastRow();
   if (last < 2) return [];
-  const headers = sh.getRange(1, 1, 1, 15).getValues()[0];
+  const headers = sh.getRange(1, 1, 1, 15).getValues()[0].map(function(h){return String(h||'');});
   const data = sh.getRange(2, 1, last - 1, 15).getValues();
-  return data.map(r => {
-    const o = {};
-    headers.forEach((h, j) => {
-      o[h] = (r[j] instanceof Date) ? Utilities.formatDate(r[j], 'Asia/Taipei', 'yyyy-MM-dd HH:mm') : r[j];
-    });
-    return o;
-  });
+  const out = [];
+  for (var i = 0; i < data.length; i++) {
+    var r = data[i], o = {};
+    for (var j = 0; j < headers.length; j++) {
+      var v = r[j];
+      o[headers[j]] = (v === null || v === undefined || v === '') ? '' :
+        (v instanceof Date) ? Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm') :
+        (typeof v === 'number' || typeof v === 'boolean') ? v : String(v);
+    }
+    out.push(o);
+  }
+  return JSON.parse(JSON.stringify(out));
 }
 
 function approveRow(rowNum, target) {
