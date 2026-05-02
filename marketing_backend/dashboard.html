@@ -447,17 +447,18 @@ function openImagePicker(rowNum) {
 
 function renderImagePicker(data) {
   pickerData = data;
-  const main = data.mainId;
-  const carousel = data.carouselIds || [];
-  const backup = data.backupIds || [];
+  // data 現在來自後端、包含完整 thumb URL、前端不需拼任何網址
+  const main = data.main || null;
+  const carousel = data.carousel || [];
+  const backup = data.backup || [];
   const isCarousel = data.publishType === 'carousel';
   
   let html = '';
   if (isCarousel && carousel.length > 0) {
     html += '<div class="img-section-title">輪播順序 (拖曳排序、第1張為主圖)</div>';
     html += '<div class="img-grid" id="carousel-grid">';
-    carousel.forEach(function(id, i){
-      html += renderImgItem_(id, 'carousel', i, i === 0);
+    carousel.forEach(function(item, i){
+      html += renderImgItem_(item, 'carousel', i, i === 0);
     });
     html += '</div>';
   } else if (main) {
@@ -470,8 +471,8 @@ function renderImagePicker(data) {
   if (backup.length > 0) {
     html += '<div class="img-section-title">備檔池 (點「設為主圖」換上來)</div>';
     html += '<div class="img-grid">';
-    backup.forEach(function(id){
-      html += renderImgItem_(id, 'backup', 0, false);
+    backup.forEach(function(item){
+      html += renderImgItem_(item, 'backup', 0, false);
     });
     html += '</div>';
   }
@@ -484,10 +485,10 @@ function renderImagePicker(data) {
   initDragSort_();
 }
 
-function renderImgItem_(id, kind, ord, isMain) {
-  // 拆分 URL 避免 Apps Script HTML 編輯器吞字串
-  const _h = String.fromCharCode(104,116,116,112,115,58,47,47); // 'https://'
-  const thumb = _h + 'drive.google.com/thumbnail?id=' + id + '&sz=w400';
+function renderImgItem_(item, kind, ord, isMain) {
+  // item 由後端來、已包含 id 與 thumb URL、前端完全不拼網址
+  const id = item.id;
+  const thumb = item.thumb;
   const cls = 'img-item' + (isMain ? ' main' : '');
   let actionBtn = '';
   if (kind === 'backup') {

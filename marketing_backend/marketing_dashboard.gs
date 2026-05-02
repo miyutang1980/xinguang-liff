@@ -279,10 +279,13 @@ function getAvailableImages(rowNum) {
   const yIds = String(r[18] || '').split(',').filter(function(s){return s.trim();});
   const zIds = String(r[19] || '').split(',').filter(function(s){return s.trim();});
   
+  // 在後端組裝縮圖 URL、前端完全不用拼
+  function toItem_(id) { return { id: id, thumb: 'https://drive.google.com/thumbnail?id=' + id + '&sz=w400' }; }
+  
   return {
-    mainId: mainId,
-    carouselIds: yIds,
-    backupIds: zIds,
+    main: mainId ? toItem_(mainId) : null,
+    carousel: yIds.map(toItem_),
+    backup: zIds.map(toItem_),
     publishType: r[17] || 'single'
   };
 }
