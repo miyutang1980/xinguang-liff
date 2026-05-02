@@ -218,8 +218,14 @@ document.querySelectorAll('nav button').forEach(b => {
 function loadAll() {
   document.getElementById('header-meta').textContent = '載入中...';
   google.script.run
-    .withSuccessHandler(d => { allQueue = d || []; renderApproval(); renderSchedule(); updateKPIs(); })
-    .withFailureHandler(err => { showError('getQueueData', err); allQueue = []; renderApproval(); updateKPIs(); })
+    .withSuccessHandler(function(d){
+      allQueue = d || [];
+      try { renderApproval(); } catch(e) { showError('renderApproval', e); }
+      try { renderSchedule(); } catch(e) { showError('renderSchedule', e); }
+      try { updateKPIs(); } catch(e) { showError('updateKPIs', e); }
+      document.getElementById('header-meta').textContent = '資料已載入 · ' + (d ? d.length : 0) + ' 列';
+    })
+    .withFailureHandler(function(err){ showError('getQueueData', err); allQueue = []; try{renderApproval();updateKPIs();}catch(e){} })
     .getQueueData();
   google.script.run
     .withSuccessHandler(d => { allInteractions = d || []; renderInteractions(); })
@@ -297,7 +303,7 @@ function renderApproval() {
         </select>
         <button class="btn btn-sm" onclick="approveOne(${r._row},'image')">圖過</button>
         <button class="btn btn-sm" onclick="approveOne(${r._row},'copy')">文過</button>
-        <button class="btn btn-sm ghost" onclick="openEdit(${r._row},'${escape_(r['文案_主標'])}','${escape_(r['文案_內文']).replace(/'/g,"\\'")}','${escape_(r['Hashtags']).replace(/'/g,"\\'")}')">改</button>
+        <button class="btn btn-sm ghost" data-row="${r._row}" onclick="openEditByData(this)">改</button>
         <button class="btn btn-sm ghost" onclick="openImagePicker(${r._row})">換圖</button>
         <button class="btn btn-sm danger" onclick="rejectOne(${r._row})">退</button>
       </div></td>
@@ -404,6 +410,13 @@ function openEdit(rowNum, headline, body, tags) {
   document.getElementById('modal-body').value = body;
   document.getElementById('modal-tags').value = tags;
   document.getElementById('modal').classList.add('show');
+}
+
+function openEditByData(btn) {
+  const rowNum = parseInt(btn.getAttribute('data-row'), 10);
+  const r = (allQueue || []).find(function(x){return x._row === rowNum;});
+  if (!r) return;
+  openEdit(rowNum, r['文案_主標'] || '', r['文案_內文'] || '', r['Hashtags'] || '');
 }
 
 function closeModal() { document.getElementById('modal').classList.remove('show'); }
