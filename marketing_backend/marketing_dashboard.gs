@@ -291,6 +291,13 @@ function getAvailableImages(rowNum) {
 }
 
 /* ========== 歷史分析（Historical_Posts + Audience_Snapshot 串連） ========== */
+function tsToString_(v) {
+  if (v instanceof Date) {
+    return Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm');
+  }
+  return String(v || '');
+}
+
 function getHistoricalAnalytics() {
   const ss = SpreadsheetApp.openById(DASH_SS_ID);
   const out = {
@@ -318,7 +325,7 @@ function getHistoricalAnalytics() {
     
     data.forEach(function(r){
       const platform = String(r[1] || '');
-      const ts = String(r[3] || '');
+      const ts = tsToString_(r[3]);
       const type = String(r[4] || '');
       const permalink = String(r[5] || '');
       const thumb = String(r[6] || '');
@@ -402,7 +409,7 @@ function getHistoricalAnalytics() {
       // 取每個指標最新一筆
       const latest = {}; // key = platform|metric|dim => row
       adata.forEach(function(r){
-        const ts = String(r[0] || '');
+        const ts = tsToString_(r[0]);
         const platform = String(r[1] || '');
         const metric = String(r[2] || '');
         const dim = String(r[3] || '');

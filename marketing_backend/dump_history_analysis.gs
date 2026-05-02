@@ -29,7 +29,7 @@ function dumpHistoryAnalysis() {
 
   data.forEach(function(r){
     const platform = String(r[1] || '');
-    const ts = String(r[3] || '');
+    const ts = (r[3] instanceof Date) ? Utilities.formatDate(r[3], 'Asia/Taipei', 'yyyy-MM-dd HH:mm') : String(r[3] || '');
     const type = String(r[4] || '') || '其他';
     const permalink = String(r[5] || '');
     const captionShort = String(r[17] || '');

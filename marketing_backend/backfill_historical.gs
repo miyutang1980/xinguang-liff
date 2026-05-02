@@ -289,35 +289,106 @@ function backfillFBHistorical() {
 }
 
 function fbGetInsights_(postId, token) {
-  // FB Page post metrics
-  const metrics = 'post_impressions,post_impressions_unique,post_reactions_like_total,post_reactions_love_total,post_reactions_wow_total,post_clicks,post_video_views,post_video_avg_time_watched,post_video_complete_views_organic';
-  const url = 'https://graph.facebook.com/v19.0/' + postId + '/insights?metric=' + metrics + '&access_token=' + token;
+  const out = { likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0, video_views: 0, avg_view_seconds: 0, completion_rate: 0 };
+  // 第一步：用 reactions.summary / comments.summary / shares 抓互動（必拿得到）
   try {
-    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    const data = JSON.parse(res.getContentText());
-    if (data.error) return {};
-    const out = {};
-    (data.data || []).forEach(function(d){
-      const v = d.values && d.values[0] && d.values[0].value;
-      if (d.name === 'post_impressions') out.impressions = v;
-      else if (d.name === 'post_impressions_unique') out.reach = v;
-      else if (d.name === 'post_reactions_like_total') out.likes = v;
-      else if (d.name === 'post_video_views') out.video_views = v;
-      else if (d.name === 'post_video_avg_time_watched') out.avg_view_seconds = Math.round((v || 0) / 1000);
-    });
-    // 同時抓 likes/comments/shares 的 summary
-    try {
-      const u2 = 'https://graph.facebook.com/v19.0/' + postId + '?fields=likes.summary(true),comments.summary(true),shares&access_token=' + token;
-      const r2 = UrlFetchApp.fetch(u2, { muteHttpExceptions: true });
-      const d2 = JSON.parse(r2.getContentText());
-      if (d2.likes && d2.likes.summary) out.likes = d2.likes.summary.total_count;
-      if (d2.comments && d2.comments.summary) out.comments = d2.comments.summary.total_count;
-      if (d2.shares && d2.shares.count) out.shares = d2.shares.count;
-    } catch (e2) {}
-    return out;
-  } catch (e) {
-    return {};
+    const f1 = encodeURIComponent('reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares');
+    const u1 = 'https://graph.facebook.com/v19.0/' + postId + '?fields=' + f1 + '&access_token=' + token;
+    const r1 = UrlFetchApp.fetch(u1, { muteHttpExceptions: true });
+    const d1 = JSON.parse(r1.getContentText());
+    if (d1.error) {
+      Logger.log('  fbGetInsights step1 error post=' + postId + ': ' + JSON.stringify(d1.error));
+    } else {
+      if (d1.reactions && d1.reactions.summary) out.likes = d1.reactions.summary.total_count || 0;
+      if (d1.comments && d1.comments.summary) out.comments = d1.comments.summary.total_count || 0;
+      if (d1.shares && d1.shares.count !== undefined) out.shares = d1.shares.count || 0;
+    }
+  } catch (e1) {
+    Logger.log('  fbGetInsights step1 exception post=' + postId + ': ' + e1);
   }
+  // 第二步：抓 insights（reach / impressions / video_views）— 失敗不影響上面
+  try {
+    const metrics = 'post_impressions,post_impressions_unique,post_video_views,post_video_avg_time_watched';
+    const u2 = 'https://graph.facebook.com/v19.0/' + postId + '/insights?metric=' + metrics + '&access_token=' + token;
+    const r2 = UrlFetchApp.fetch(u2, { muteHttpExceptions: true });
+    const d2 = JSON.parse(r2.getContentText());
+    if (!d2.error) {
+      (d2.data || []).forEach(function(d){
+        const v = d.values && d.values[0] && d.values[0].value;
+        if (d.name === 'post_impressions') out.impressions = v || 0;
+        else if (d.name === 'post_impressions_unique') out.reach = v || 0;
+        else if (d.name === 'post_video_views') out.video_views = v || 0;
+        else if (d.name === 'post_video_avg_time_watched') out.avg_view_seconds = Math.round((v || 0) / 1000);
+      });
+    }
+  } catch (e2) {}
+  return out;
+}
+
+/**
+ * 補抓所有 FB 歷史貼文互動數（reactions/comments/shares）
+ * 用 Historical_Posts 的 FB 列、回填欄位 I/J/K（讚/留言/分享）+ M/N（觸及/曝光）+ O（影片觀看）
+ */
+function fbBackfillInteractions() {
+  const ss = SpreadsheetApp.openById(HIST_SS_ID);
+  const sh = ss.getSheetByName('Historical_Posts');
+  if (!sh || sh.getLastRow() < 2) { Logger.log('無資料'); return; }
+  const token = hist_getSetting_('FB_PAGE_TOKEN');
+  if (!token) { Logger.log('FB_PAGE_TOKEN 未設'); return; }
+  
+  const last = sh.getLastRow();
+  const data = sh.getRange(2, 1, last - 1, 18).getValues();
+  const startTime = new Date().getTime();
+  const TIMEOUT_MS = 5 * 60 * 1000;
+  
+  let updated = 0, skipped = 0, errors = 0;
+  const updates = []; // {row, likes, comments, shares, reach, impressions, video_views, avg}
+  
+  for (let i = 0; i < data.length; i++) {
+    if (new Date().getTime() - startTime > TIMEOUT_MS) {
+      Logger.log('5 分鐘超時、本輪處理 ' + updated + ' 筆、再跑一次補完剩下');
+      break;
+    }
+    const r = data[i];
+    if (r[1] !== 'FB') continue;
+    const id = String(r[2] || '').replace(/^FB:/, '');
+    if (!id) { skipped++; continue; }
+    // 已經有互動就跳過
+    const curLikes = Number(r[8]) || 0;
+    const curComments = Number(r[9]) || 0;
+    const curShares = Number(r[10]) || 0;
+    if (curLikes + curComments + curShares > 0) { skipped++; continue; }
+    
+    const ins = fbGetInsights_(id, token);
+    if (ins.likes + ins.comments + ins.shares + ins.reach + ins.video_views > 0) {
+      updates.push({
+        row: i + 2,
+        likes: ins.likes, comments: ins.comments, shares: ins.shares,
+        reach: ins.reach, impressions: ins.impressions,
+        video_views: ins.video_views, avg: ins.avg_view_seconds
+      });
+      updated++;
+    } else {
+      errors++;
+    }
+    // 每 50 筆批次寫
+    if (updates.length >= 50) {
+      _fb_flushUpdates(sh, updates);
+      updates.length = 0;
+    }
+  }
+  if (updates.length > 0) _fb_flushUpdates(sh, updates);
+  
+  Logger.log('===== FB 互動補抓完成 =====');
+  Logger.log('更新 ' + updated + ' 筆、跳過 ' + skipped + '（已有互動或非FB）、抓不到 ' + errors + ' 筆');
+}
+
+function _fb_flushUpdates(sh, updates) {
+  updates.forEach(function(u){
+    sh.getRange(u.row, 9, 1, 7).setValues([[u.likes, u.comments, u.shares, 0, u.reach, u.impressions, u.video_views]]);
+    if (u.avg) sh.getRange(u.row, 16).setValue(u.avg);
+  });
+  SpreadsheetApp.flush();
 }
 
 /* =========================================================
