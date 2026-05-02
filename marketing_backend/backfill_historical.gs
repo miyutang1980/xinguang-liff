@@ -202,9 +202,10 @@ function backfillFBHistorical() {
   const startTime = new Date().getTime();
   const TIMEOUT_MS = 5 * 60 * 1000;
 
-  // 注意：attachments{...} 這種 nested fields 的大括號要 URL encode
-  const fbFields = 'id,message,created_time,permalink_url,full_picture,attachments{media_type,media,subattachments}';
-  let url = 'https://graph.facebook.com/v19.0/' + pageId + '/posts?fields=' + encodeURIComponent(fbFields) + '&limit=100&access_token=' + token;
+  // 簡化 fields、並把 limit 降到 25、避免 Meta 「Please reduce the amount of data」錯誤
+  // 類型判斷改用 full_picture 是否存在來推斷 IMAGE / STATUS
+  const fbFields = 'id,message,created_time,permalink_url,full_picture';
+  let url = 'https://graph.facebook.com/v19.0/' + pageId + '/posts?fields=' + fbFields + '&limit=25&access_token=' + token;
   let totalAdded = 0, totalSkipped = 0, pages = 0;
 
   while (url) {
@@ -234,7 +235,19 @@ function backfillFBHistorical() {
       if (existing.has('FB:' + p.id)) { totalSkipped++; pageReasonExist++; continue; }
       
       const ins = fbGetInsights_(p.id, token);
-      const mediaType = (p.attachments && p.attachments.data && p.attachments.data[0] && p.attachments.data[0].media_type) || 'STATUS';
+      // 用單篇查詢要 attachments 拿 media_type（一次一篇不會被 Meta 拒）
+      let mediaType = 'STATUS';
+      try {
+        const u3 = 'https://graph.facebook.com/v19.0/' + p.id + '?fields=attachments{media_type}&access_token=' + token;
+        const r3 = JSON.parse(UrlFetchApp.fetch(u3, {muteHttpExceptions:true}).getContentText());
+        if (r3.attachments && r3.attachments.data && r3.attachments.data[0]) {
+          mediaType = r3.attachments.data[0].media_type || 'STATUS';
+        } else if (p.full_picture) {
+          mediaType = 'IMAGE';
+        }
+      } catch (eMt) {
+        if (p.full_picture) mediaType = 'IMAGE';
+      }
       
       rowsToAdd.push([
         Utilities.formatDate(new Date(), HIST_TZ, 'yyyy-MM-dd HH:mm:ss'),
