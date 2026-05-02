@@ -42,9 +42,10 @@ function getQueueData() {
   const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
   const last = sh.getLastRow();
   if (last < 2) return [];
-  const lastCol = sh.getLastColumn(); // 自動讀到 W 欄(進件資料夾URL)、未來新增欄也不需再改
-  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
-  const data = sh.getRange(2, 1, last - 1, lastCol).getValues();
+  // 固定讀 23 欄（A-W）、以欄頭為準。若 Sheet 還沒 W 欄、getRange 會自動填空、不會報錯
+  const COL = 23;
+  const headers = sh.getRange(1, 1, 1, COL).getValues()[0];
+  const data = sh.getRange(2, 1, last - 1, COL).getValues();
   return data.map((r, i) => {
     const o = { _row: i + 2 };
     headers.forEach((h, j) => {
@@ -175,4 +176,113 @@ function approveRowApi_(body) {
 function rejectRowApi_(body) {
   rejectRow(body.rowNum, body.target, body.reason || '');
   return ContentService.createTextOutput(JSON.stringify({ ok: true })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/* ========== Carousel/PublishType 操作 (Layer 3) ========== */
+
+// 設定該列發布類型 (single / carousel)
+function setPublishType(rowNum, type) {
+  if (type !== 'single' && type !== 'carousel') {
+    return { ok: false, error: '類型必須是 single 或 carousel' };
+  }
+  const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
+  // 確保 X 欄(24)欄頭存在
+  const headers = sh.getRange(1, 1, 1, Math.max(26, sh.getLastColumn())).getValues()[0];
+  if (headers[23] !== '發布類型') sh.getRange(1, 24).setValue('發布類型');
+  if (headers[24] !== '輪播圖file_ids') sh.getRange(1, 25).setValue('輪播圖file_ids');
+  if (headers[25] !== '備檔file_ids') sh.getRange(1, 26).setValue('備檔file_ids');
+  
+  sh.getRange(rowNum, 24).setValue(type);
+  
+  // 切到 carousel 時、若 Y 欄空、自動把 G 欄主圖+Z 欄備檔合併到 Y
+  if (type === 'carousel') {
+    const r = sh.getRange(rowNum, 7, 1, 20).getValues()[0]; // G(7) ~ Z(26)
+    const yIds = String(r[18] || '').split(',').filter(function(s){return s.trim();});
+    if (yIds.length === 0) {
+      const mainUrl = String(r[0] || '');
+      const mainId = (mainUrl.match(/[-\w]{25,}/) || [])[0];
+      const zIds = String(r[19] || '').split(',').filter(function(s){return s.trim();});
+      const merged = [];
+      if (mainId) merged.push(mainId);
+      zIds.forEach(function(id){ if (id !== mainId) merged.push(id); });
+      sh.getRange(rowNum, 25).setValue(merged.slice(0, 10).join(','));
+      sh.getRange(rowNum, 26).setValue(merged.slice(10).join(','));
+    }
+  }
+  // 切到 single 時、把 Y 欄第 1 張當主圖、其他丟回 Z
+  if (type === 'single') {
+    const r = sh.getRange(rowNum, 25, 1, 2).getValues()[0]; // Y, Z
+    const yIds = String(r[0] || '').split(',').filter(function(s){return s.trim();});
+    const zIds = String(r[1] || '').split(',').filter(function(s){return s.trim();});
+    if (yIds.length > 0) {
+      const newMain = yIds[0];
+      sh.getRange(rowNum, 7).setValue('https://drive.google.com/file/d/' + newMain + '/view');
+      sh.getRange(rowNum, 8).setValue('https://drive.google.com/thumbnail?id=' + newMain + '&sz=w400');
+      // 把 Y 第 2+ 張丟回 Z
+      const restToZ = yIds.slice(1).concat(zIds);
+      sh.getRange(rowNum, 25).setValue('');
+      sh.getRange(rowNum, 26).setValue(restToZ.join(','));
+    }
+  }
+  
+  // 重設圖片審核
+  sh.getRange(rowNum, 14).setValue('待審');
+  return { ok: true };
+}
+
+// 重新排序輪播圖 (傳入 file_ids 陣列、依序為輪播順序)
+function reorderCarousel(rowNum, orderedIds) {
+  const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+    return { ok: false, error: '需傳入 file_ids 陣列' };
+  }
+  const ids = orderedIds.slice(0, 10);
+  // Y 欄
+  sh.getRange(rowNum, 25).setValue(ids.join(','));
+  // G/H 欄主圖 = 第 1 張
+  const mainId = ids[0];
+  sh.getRange(rowNum, 7).setValue('https://drive.google.com/file/d/' + mainId + '/view');
+  sh.getRange(rowNum, 8).setValue('https://drive.google.com/thumbnail?id=' + mainId + '&sz=w400');
+  // 重設圖片審核
+  sh.getRange(rowNum, 14).setValue('待審');
+  return { ok: true };
+}
+
+// 取出該列所有可用圖 (Y + Z)、給後台 UI 顯示
+function getAvailableImages(rowNum) {
+  const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
+  const r = sh.getRange(rowNum, 7, 1, 20).getValues()[0];
+  const mainUrl = String(r[0] || '');
+  const mainId = (mainUrl.match(/[-\w]{25,}/) || [])[0];
+  const yIds = String(r[18] || '').split(',').filter(function(s){return s.trim();});
+  const zIds = String(r[19] || '').split(',').filter(function(s){return s.trim();});
+  
+  return {
+    mainId: mainId,
+    carouselIds: yIds,
+    backupIds: zIds,
+    publishType: r[17] || 'single'
+  };
+}
+
+// 從備檔池(Z)拉一張到主圖位置
+function promoteBackupToMain(rowNum, fileId) {
+  const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
+  const r = sh.getRange(rowNum, 7, 1, 20).getValues()[0];
+  const mainUrl = String(r[0] || '');
+  const oldMainId = (mainUrl.match(/[-\w]{25,}/) || [])[0];
+  const zIds = String(r[19] || '').split(',').filter(function(s){return s.trim();});
+  
+  if (zIds.indexOf(fileId) < 0) return { ok: false, error: '此 file_id 不在備檔池' };
+  
+  // 新主圖
+  sh.getRange(rowNum, 7).setValue('https://drive.google.com/file/d/' + fileId + '/view');
+  sh.getRange(rowNum, 8).setValue('https://drive.google.com/thumbnail?id=' + fileId + '&sz=w400');
+  // 從 Z 移除新主圖、加回舊主圖
+  const newZ = zIds.filter(function(id){return id !== fileId;});
+  if (oldMainId && oldMainId !== fileId) newZ.push(oldMainId);
+  sh.getRange(rowNum, 26).setValue(newZ.join(','));
+  
+  sh.getRange(rowNum, 14).setValue('待審');
+  return { ok: true };
 }

@@ -51,6 +51,20 @@
 
   .btn-folder{background:#34a853;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;text-decoration:none;display:inline-block;margin-right:4px}
   .btn-folder:hover{opacity:.85}
+  .sel-type{padding:4px 6px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#fff;cursor:pointer}
+  .sel-type:hover{border-color:var(--navy)}
+  .img-picker{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;align-items:flex-start;justify-content:center;padding:40px;overflow-y:auto}
+  .img-picker.show{display:flex}
+  .img-picker-box{background:#fff;border-radius:12px;padding:24px;max-width:920px;width:100%}
+  .img-picker h3{margin-top:0;color:var(--navy)}
+  .img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin:16px 0}
+  .img-item{border:2px solid #ddd;border-radius:8px;padding:6px;cursor:grab;background:#fafafa;text-align:center;position:relative;user-select:none}
+  .img-item.main{border-color:#34a853;background:#e8f5e9}
+  .img-item.dragging{opacity:0.4}
+  .img-item img{width:100%;height:130px;object-fit:cover;border-radius:6px;display:block}
+  .img-item .badge{position:absolute;top:4px;left:4px;background:#34a853;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px}
+  .img-item .ord{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;font-weight:700}
+  .img-section-title{font-size:13px;font-weight:700;color:#666;margin:16px 0 8px;text-transform:uppercase;letter-spacing:0.5px}
   .preview .text{flex:1;min-width:0}
   .preview .topic{font-weight:700;color:var(--navy);margin-bottom:4px}
   .preview .platform{font-size:11px;color:var(--gray);margin-bottom:6px}
@@ -173,7 +187,18 @@
   </div>
 </div>
 
-
+<!-- 圖片選擇/排序 Modal -->
+<div class="img-picker" id="img-picker">
+  <div class="img-picker-box">
+    <h3 id="img-picker-title">換圖/排序</h3>
+    <p style="color:#666;font-size:13px;margin:6px 0">拖曳調整輪播順序、點「設為主圖」換主圖。儲存後圖片審核會重設為待審。</p>
+    <div id="img-picker-content"></div>
+    <div class="actions">
+      <button class="btn ghost" onclick="closeImagePicker()">取消</button>
+      <button class="btn" onclick="saveImagePicker()">儲存</button>
+    </div>
+  </div>
+</div>
 
 <script>
 let allQueue = [];
@@ -266,9 +291,14 @@ function renderApproval() {
       <td><span class="pill ${r['文案審核']}">${r['文案審核']}</span></td>
       <td><span class="pill ${r['排程狀態']}">${r['排程狀態']}</span></td>
       <td><div class="row-actions">
+        <select class="sel-type" onchange="changeType(${r._row}, this.value)" title="發布類型">
+          <option value="single" ${(r['發布類型']||'single')==='single'?'selected':''}>單張</option>
+          <option value="carousel" ${r['發布類型']==='carousel'?'selected':''}>輪播</option>
+        </select>
         <button class="btn btn-sm" onclick="approveOne(${r._row},'image')">圖過</button>
         <button class="btn btn-sm" onclick="approveOne(${r._row},'copy')">文過</button>
         <button class="btn btn-sm ghost" onclick="openEdit(${r._row},'${escape_(r['文案_主標'])}','${escape_(r['文案_內文']).replace(/'/g,"\\'")}','${escape_(r['Hashtags']).replace(/'/g,"\\'")}')">改</button>
+        <button class="btn btn-sm ghost" onclick="openImagePicker(${r._row})">換圖</button>
         <button class="btn btn-sm danger" onclick="rejectOne(${r._row})">退</button>
       </div></td>
     </tr>`;
@@ -384,6 +414,146 @@ function saveModal() {
   const b = document.getElementById('modal-body').value;
   const t = document.getElementById('modal-tags').value;
   google.script.run.withSuccessHandler(() => { closeModal(); loadAll(); }).updateCopyText(rowNum, h, b, t);
+}
+
+/* ===== 輪播/換圖 ===== */
+let pickerRow = 0;
+let pickerData = null;
+
+function changeType(rowNum, type) {
+  google.script.run.withSuccessHandler(function(){loadAll();}).setPublishType(rowNum, type);
+}
+
+function openImagePicker(rowNum) {
+  pickerRow = rowNum;
+  document.getElementById('img-picker-title').textContent = '換圖/排序 · 列 ' + rowNum;
+  document.getElementById('img-picker-content').innerHTML = '<p style="text-align:center;padding:30px;color:#999">載入中...</p>';
+  document.getElementById('img-picker').classList.add('show');
+  google.script.run.withSuccessHandler(renderImagePicker).getAvailableImages(rowNum);
+}
+
+function renderImagePicker(data) {
+  pickerData = data;
+  const main = data.mainId;
+  const carousel = data.carouselIds || [];
+  const backup = data.backupIds || [];
+  const isCarousel = data.publishType === 'carousel';
+  
+  let html = '';
+  if (isCarousel && carousel.length > 0) {
+    html += '<div class="img-section-title">輪播順序 (拖曳排序、第1張為主圖)</div>';
+    html += '<div class="img-grid" id="carousel-grid">';
+    carousel.forEach(function(id, i){
+      html += renderImgItem_(id, 'carousel', i, i === 0);
+    });
+    html += '</div>';
+  } else if (main) {
+    html += '<div class="img-section-title">主圖</div>';
+    html += '<div class="img-grid">';
+    html += renderImgItem_(main, 'main', 0, true);
+    html += '</div>';
+  }
+  
+  if (backup.length > 0) {
+    html += '<div class="img-section-title">備檔池 (點「設為主圖」換上來)</div>';
+    html += '<div class="img-grid">';
+    backup.forEach(function(id){
+      html += renderImgItem_(id, 'backup', 0, false);
+    });
+    html += '</div>';
+  }
+  
+  if (!main && carousel.length === 0 && backup.length === 0) {
+    html = '<p style="text-align:center;padding:30px;color:#999">這列還沒有圖、請先到進件資料夾丟實景照</p>';
+  }
+  
+  document.getElementById('img-picker-content').innerHTML = html;
+  initDragSort_();
+}
+
+function renderImgItem_(id, kind, ord, isMain) {
+  const thumb = ('https' + '://drive.google.com/thumbnail?id=') + id + '&sz=w400';
+  const cls = 'img-item' + (isMain ? ' main' : '');
+  let actionBtn = '';
+  if (kind === 'backup') {
+    actionBtn = '<button class="btn btn-sm" style="width:100%;margin-top:6px" onclick="promoteBackup(\'' + id + '\')">設為主圖</button>';
+  }
+  const badge = isMain ? '<div class="badge">主</div>' : '';
+  const ordBadge = (kind === 'carousel') ? '<div class="ord">' + (ord + 1) + '</div>' : '';
+  return '<div class="' + cls + '" data-id="' + id + '" data-kind="' + kind + '" draggable="' + (kind === 'carousel') + '">' +
+         badge + ordBadge +
+         '<img src="' + thumb + '" alt="" onerror="this.style.opacity=0.3">' +
+         actionBtn +
+         '</div>';
+}
+
+function initDragSort_() {
+  const grid = document.getElementById('carousel-grid');
+  if (!grid) return;
+  let dragEl = null;
+  grid.addEventListener('dragstart', function(e) {
+    dragEl = e.target.closest('.img-item');
+    if (dragEl) dragEl.classList.add('dragging');
+  });
+  grid.addEventListener('dragend', function() {
+    if (dragEl) dragEl.classList.remove('dragging');
+    dragEl = null;
+    refreshOrdBadges_();
+  });
+  grid.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    const target = e.target.closest('.img-item');
+    if (!target || target === dragEl) return;
+    const rect = target.getBoundingClientRect();
+    const after = e.clientX > rect.left + rect.width / 2;
+    if (after) target.parentNode.insertBefore(dragEl, target.nextSibling);
+    else target.parentNode.insertBefore(dragEl, target);
+  });
+}
+
+function refreshOrdBadges_() {
+  const grid = document.getElementById('carousel-grid');
+  if (!grid) return;
+  const items = grid.querySelectorAll('.img-item');
+  items.forEach(function(item, i) {
+    const ord = item.querySelector('.ord');
+    if (ord) ord.textContent = (i + 1);
+    item.classList.toggle('main', i === 0);
+    const badge = item.querySelector('.badge');
+    if (i === 0 && !badge) {
+      const b = document.createElement('div');
+      b.className = 'badge';
+      b.textContent = '主';
+      item.insertBefore(b, item.firstChild);
+    } else if (i !== 0 && badge) {
+      badge.remove();
+    }
+  });
+}
+
+function promoteBackup(fileId) {
+  google.script.run.withSuccessHandler(function(){
+    google.script.run.withSuccessHandler(renderImagePicker).getAvailableImages(pickerRow);
+  }).promoteBackupToMain(pickerRow, fileId);
+}
+
+function saveImagePicker() {
+  const grid = document.getElementById('carousel-grid');
+  if (grid) {
+    const items = grid.querySelectorAll('.img-item');
+    const ids = Array.from(items).map(function(it){return it.getAttribute('data-id');});
+    google.script.run.withSuccessHandler(function(){
+      closeImagePicker();
+      loadAll();
+    }).reorderCarousel(pickerRow, ids);
+  } else {
+    closeImagePicker();
+    loadAll();
+  }
+}
+
+function closeImagePicker() {
+  document.getElementById('img-picker').classList.remove('show');
 }
 
 
