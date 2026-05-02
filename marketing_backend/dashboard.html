@@ -485,7 +485,9 @@ function renderImagePicker(data) {
 }
 
 function renderImgItem_(id, kind, ord, isMain) {
-  const thumb = ('https' + '://drive.google.com/thumbnail?id=') + id + '&sz=w400';
+  // 拆分 URL 避免 Apps Script HTML 編輯器吞字串
+  const _h = String.fromCharCode(104,116,116,112,115,58,47,47); // 'https://'
+  const thumb = _h + 'drive.google.com/thumbnail?id=' + id + '&sz=w400';
   const cls = 'img-item' + (isMain ? ' main' : '');
   let actionBtn = '';
   if (kind === 'backup') {
