@@ -94,6 +94,11 @@ function backfillIGHistorical() {
     }
     const items = data.data || [];
     Logger.log('第 ' + pages + ' 頁、' + items.length + ' 筆');
+    if (items.length > 0 && pages === 1) {
+      Logger.log('  最新一篇 timestamp: ' + items[0].timestamp);
+      Logger.log('  最舊一篇 timestamp: ' + items[items.length - 1].timestamp);
+      Logger.log('  cutoff (不抓 興此之後): ' + HIST_CUTOFF);
+    }
     
     const rowsToAdd = [];
     for (const m of items) {
@@ -378,6 +383,37 @@ function fetchAudienceDemographics() {
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
   }
   Logger.log('✓ Audience_Snapshot 寫入 ' + rows.length + ' 列');
+}
+
+/* =========================================================
+ *  診斷工具：看实際資料兩端的 timestamp
+ * ========================================================= */
+function diagnoseHistoricalRange() {
+  const igId = hist_getSetting_('IG_BUSINESS_ACCOUNT_ID');
+  const pageId = hist_getSetting_('FB_PAGE_ID');
+  const token = hist_getSetting_('FB_PAGE_TOKEN');
+  
+  Logger.log('===== IG 帳號認定 =====');
+  const u0 = 'https://graph.facebook.com/v19.0/' + igId + '?fields=username,name,followers_count,media_count&access_token=' + token;
+  Logger.log(JSON.parse(UrlFetchApp.fetch(u0, {muteHttpExceptions:true}).getContentText()));
+  
+  Logger.log('===== IG 最新 5 篇 =====');
+  const u1 = 'https://graph.facebook.com/v19.0/' + igId + '/media?fields=id,timestamp,permalink,caption,media_type&limit=5&access_token=' + token;
+  const r1 = JSON.parse(UrlFetchApp.fetch(u1, {muteHttpExceptions:true}).getContentText());
+  (r1.data || []).forEach(function(m){
+    Logger.log(m.timestamp + ' | ' + m.media_type + ' | ' + m.permalink);
+  });
+  
+  Logger.log('===== FB Page 認定 =====');
+  const u2 = 'https://graph.facebook.com/v19.0/' + pageId + '?fields=name,fan_count,about&access_token=' + token;
+  Logger.log(JSON.parse(UrlFetchApp.fetch(u2, {muteHttpExceptions:true}).getContentText()));
+  
+  Logger.log('===== FB 最新 5 篇 =====');
+  const u3 = 'https://graph.facebook.com/v19.0/' + pageId + '/posts?fields=id,created_time,permalink_url,message&limit=5&access_token=' + token;
+  const r3 = JSON.parse(UrlFetchApp.fetch(u3, {muteHttpExceptions:true}).getContentText());
+  (r3.data || []).forEach(function(p){
+    Logger.log(p.created_time + ' | ' + p.permalink_url);
+  });
 }
 
 /* =========================================================
