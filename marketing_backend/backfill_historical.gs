@@ -95,16 +95,18 @@ function backfillIGHistorical() {
     const items = data.data || [];
     Logger.log('第 ' + pages + ' 頁、' + items.length + ' 筆');
     if (items.length > 0 && pages === 1) {
-      Logger.log('  最新一篇 timestamp: ' + items[0].timestamp);
-      Logger.log('  最舊一篇 timestamp: ' + items[items.length - 1].timestamp);
-      Logger.log('  cutoff (不抓 興此之後): ' + HIST_CUTOFF);
+      Logger.log('  最新一篇 timestamp (UTC): ' + items[0].timestamp);
+      Logger.log('  最舊一篇 timestamp (UTC): ' + items[items.length - 1].timestamp);
+      Logger.log('  cutoff (台北): ' + HIST_CUTOFF + ' 00:00 = UTC ' + new Date(cutoffMs).toISOString());
+      Logger.log('  existing set 大小: ' + existing.size);
     }
     
     const rowsToAdd = [];
+    let pageReasonAfter = 0, pageReasonExist = 0, pageReasonAdded = 0;
     for (const m of items) {
       const ts = new Date(m.timestamp).getTime();
-      if (ts >= cutoffMs) { totalSkipped++; continue; }
-      if (existing.has('IG:' + m.id)) { totalSkipped++; continue; }
+      if (ts >= cutoffMs) { totalSkipped++; pageReasonAfter++; continue; }
+      if (existing.has('IG:' + m.id)) { totalSkipped++; pageReasonExist++; continue; }
       
       // 抓 insights
       const ins = igGetInsights_(m.id, m.media_type, token);
@@ -130,7 +132,9 @@ function backfillIGHistorical() {
         String(m.caption || '').substring(0, 60)
       ]);
       existing.add('IG:' + m.id);
+      pageReasonAdded++;
     }
+    Logger.log('  本頁細目：新增=' + pageReasonAdded + '、晚於cutoff被略=' + pageReasonAfter + '、已存在被略=' + pageReasonExist);
     if (rowsToAdd.length > 0) {
       hist_appendRows_(rowsToAdd);
       totalAdded += rowsToAdd.length;
@@ -149,6 +153,11 @@ function backfillIGHistorical() {
   
   Logger.log('===== IG 完成 =====');
   Logger.log('新增 ' + totalAdded + ' 篇、略過 ' + totalSkipped + ' 篇、共 ' + pages + ' 頁');
+  if (totalAdded === 0 && totalSkipped > 0) {
+    Logger.log('⚠️ 全部被略、請看上面「本頁細目」判斷原因：');
+    Logger.log('   - 若「晚於cutoff」多：historical 貼文都看似是 5/1 以後、可能 cutoff 太早');
+    Logger.log('   - 若「已存在」多：Historical_Posts 裡已有資料');
+  }
 }
 
 function igGetInsights_(mediaId, mediaType, token) {
@@ -210,12 +219,17 @@ function backfillFBHistorical() {
     }
     const items = data.data || [];
     Logger.log('FB 第 ' + pages + ' 頁、' + items.length + ' 筆');
+    if (items.length > 0 && pages === 1) {
+      Logger.log('  最新一篇 created_time: ' + items[0].created_time);
+      Logger.log('  cutoff (台北): ' + HIST_CUTOFF + ' 00:00 = UTC ' + new Date(cutoffMs).toISOString());
+    }
     
     const rowsToAdd = [];
+    let pageReasonAfter = 0, pageReasonExist = 0, pageReasonAdded = 0;
     for (const p of items) {
       const ts = new Date(p.created_time).getTime();
-      if (ts >= cutoffMs) { totalSkipped++; continue; }
-      if (existing.has('FB:' + p.id)) { totalSkipped++; continue; }
+      if (ts >= cutoffMs) { totalSkipped++; pageReasonAfter++; continue; }
+      if (existing.has('FB:' + p.id)) { totalSkipped++; pageReasonExist++; continue; }
       
       const ins = fbGetInsights_(p.id, token);
       const mediaType = (p.attachments && p.attachments.data && p.attachments.data[0] && p.attachments.data[0].media_type) || 'STATUS';
@@ -241,7 +255,9 @@ function backfillFBHistorical() {
         String(p.message || '').substring(0, 60)
       ]);
       existing.add('FB:' + p.id);
+      pageReasonAdded++;
     }
+    Logger.log('  本頁細目：新增=' + pageReasonAdded + '、晚於cutoff被略=' + pageReasonAfter + '、已存在被略=' + pageReasonExist);
     if (rowsToAdd.length > 0) {
       hist_appendRows_(rowsToAdd);
       totalAdded += rowsToAdd.length;
