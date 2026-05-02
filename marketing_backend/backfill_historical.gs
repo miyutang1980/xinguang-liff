@@ -536,3 +536,134 @@ function backfillAllHistorical() {
   Logger.log('');
   Logger.log('🎉 全部完成');
 }
+
+/**
+ * 診斷 FB token 類型 + 確認是否能讀自己 Page 的互動
+ * 跑完看執行記錄
+ */
+function fbDiagnoseToken() {
+  const token = hist_getSetting_('FB_PAGE_TOKEN');
+  const pageId = hist_getSetting_('FB_PAGE_ID');
+  Logger.log('========== FB Token 診斷 ==========');
+  Logger.log('Page ID: ' + pageId);
+  Logger.log('Token 長度: ' + (token ? token.length : 0));
+  
+  // 1. /me 端點看 token 主體
+  try {
+    const u = 'https://graph.facebook.com/v19.0/me?access_token=' + token;
+    const r = JSON.parse(UrlFetchApp.fetch(u, {muteHttpExceptions:true}).getContentText());
+    Logger.log('1. /me 結果: ' + JSON.stringify(r));
+    if (r.id === pageId) {
+      Logger.log('   ✅ 這是 Page Access Token、主體就是 Page、應該能讀自己貼文');
+    } else if (r.id) {
+      Logger.log('   ⚠️ 這是 User Access Token (id=' + r.id + ')、不是 Page Token、會被 PPCA 擋');
+    }
+  } catch (e) { Logger.log('1. /me 失敗: ' + e); }
+  
+  // 2. debug_token 看細節
+  try {
+    const u = 'https://graph.facebook.com/v19.0/debug_token?input_token=' + token + '&access_token=' + token;
+    const r = JSON.parse(UrlFetchApp.fetch(u, {muteHttpExceptions:true}).getContentText());
+    Logger.log('2. debug_token: ' + JSON.stringify(r.data || r));
+  } catch (e) {}
+  
+  // 3. 試 me/feed（用 Page Token 時最不會被擋）
+  try {
+    const u = 'https://graph.facebook.com/v19.0/me/feed?fields=id,created_time&limit=2&access_token=' + token;
+    const r = JSON.parse(UrlFetchApp.fetch(u, {muteHttpExceptions:true}).getContentText());
+    Logger.log('3. me/feed 結果筆數: ' + (r.data ? r.data.length : 0));
+    if (r.error) Logger.log('   錯誤: ' + JSON.stringify(r.error));
+    else if (r.data && r.data[0]) Logger.log('   首筆: ' + JSON.stringify(r.data[0]));
+  } catch (e) {}
+  
+  // 4. 試 me/posts + 一次帶 reactions/comments/shares fields（最關鍵測試）
+  try {
+    const fields = encodeURIComponent('id,created_time,reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares');
+    const u = 'https://graph.facebook.com/v19.0/me/posts?fields=' + fields + '&limit=3&access_token=' + token;
+    const r = JSON.parse(UrlFetchApp.fetch(u, {muteHttpExceptions:true}).getContentText());
+    Logger.log('4. me/posts + reactions/comments/shares:');
+    if (r.error) {
+      Logger.log('   ❌ 錯誤: ' + JSON.stringify(r.error));
+    } else if (r.data) {
+      r.data.slice(0, 3).forEach(function(p, i){
+        const reactions = p.reactions && p.reactions.summary ? p.reactions.summary.total_count : 'N/A';
+        const comments = p.comments && p.comments.summary ? p.comments.summary.total_count : 'N/A';
+        const shares = p.shares && p.shares.count !== undefined ? p.shares.count : 'N/A';
+        Logger.log('   ' + (i+1) + '. ' + p.id + ' | ' + p.created_time + ' | reactions=' + reactions + '、comments=' + comments + '、shares=' + shares);
+      });
+      Logger.log('   ✅ 用 me/posts 可以拿到互動！下一步用 fbBackfillInteractionsViaMeFeed');
+    }
+  } catch (e) { Logger.log('4. 失敗: ' + e); }
+  
+  Logger.log('=====================================');
+}
+
+/**
+ * 用 me/posts edge 補抓 FB 互動（避開 PPCA 限制）
+ * 一次抓 100 筆、含 reactions/comments/shares 全部 fields、寫回 sheet
+ */
+function fbBackfillInteractionsViaMeFeed() {
+  const ss = SpreadsheetApp.openById(HIST_SS_ID);
+  const sh = ss.getSheetByName('Historical_Posts');
+  if (!sh || sh.getLastRow() < 2) { Logger.log('無資料'); return; }
+  const token = hist_getSetting_('FB_PAGE_TOKEN');
+  if (!token) { Logger.log('FB_PAGE_TOKEN 未設'); return; }
+  
+  // 建 id => row 的索引
+  const last = sh.getLastRow();
+  const data = sh.getRange(2, 1, last - 1, 18).getValues();
+  const idToRow = {}; // 'FB:xxxx' => row number
+  data.forEach(function(r, i){
+    if (r[1] === 'FB' && r[2]) idToRow[String(r[2])] = i + 2;
+  });
+  Logger.log('Sheet 有 ' + Object.keys(idToRow).length + ' 筆 FB 列待補');
+  
+  const fields = encodeURIComponent('id,created_time,reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares');
+  let url = 'https://graph.facebook.com/v19.0/me/posts?fields=' + fields + '&limit=100&access_token=' + token;
+  
+  const startTime = new Date().getTime();
+  const TIMEOUT_MS = 5 * 60 * 1000;
+  let totalUpdated = 0, totalSeen = 0, pages = 0;
+  
+  while (url) {
+    if (new Date().getTime() - startTime > TIMEOUT_MS) {
+      Logger.log('5 分鐘超時、本輪更新 ' + totalUpdated + ' 筆');
+      break;
+    }
+    pages++;
+    const res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const data2 = JSON.parse(res.getContentText());
+    if (data2.error) {
+      Logger.log('❌ FB API 錯誤: ' + JSON.stringify(data2.error));
+      break;
+    }
+    const items = data2.data || [];
+    Logger.log('第 ' + pages + ' 頁、' + items.length + ' 筆');
+    
+    const updates = [];
+    items.forEach(function(p){
+      totalSeen++;
+      const key = 'FB:' + p.id;
+      const row = idToRow[key];
+      if (!row) return; // sheet 沒這筆、跳過
+      const likes = (p.reactions && p.reactions.summary) ? (p.reactions.summary.total_count || 0) : 0;
+      const comments = (p.comments && p.comments.summary) ? (p.comments.summary.total_count || 0) : 0;
+      const shares = (p.shares && p.shares.count !== undefined) ? (p.shares.count || 0) : 0;
+      if (likes + comments + shares > 0) {
+        updates.push({ row: row, likes: likes, comments: comments, shares: shares });
+      }
+    });
+    
+    // 批次寫入
+    updates.forEach(function(u){
+      sh.getRange(u.row, 9, 1, 3).setValues([[u.likes, u.comments, u.shares]]);
+    });
+    SpreadsheetApp.flush();
+    totalUpdated += updates.length;
+    
+    url = (data2.paging && data2.paging.next) || null;
+  }
+  
+  Logger.log('===== me/posts 補抓完成 =====');
+  Logger.log('總共看過 ' + totalSeen + ' 筆 API 結果、更新 sheet 上 ' + totalUpdated + ' 筆');
+}
