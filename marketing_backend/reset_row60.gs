@@ -6,31 +6,38 @@
  */
 
 function resetRow60() {
-  const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.openById('1DybgWBdCyvkEijMyaE46rKLtQD9J2ImjU8xeYCKSKnA');
   const sh = ss.getSheetByName('排程佇列 Posting_Queue');
 
-  // 先看看現在狀態
+  // 先看現在狀態
   const before = sh.getRange(60, 1, 1, 22).getValues()[0];
-  const ans = ui.alert(
-    '重置列 60 確認\n\n' +
-    'A queue_id: ' + before[0] + '\n' +
-    'I 主題: ' + before[8] + '\n' +
-    'P 排程狀態: ' + before[15] + '\n' +
-    'R post_id: ' + before[17] + '\n\n' +
-    '會清空 P/Q/R/S/T 五欄、把 P 改回「草稿」。\n' +
-    '6/8 12:30 觸發器會重新發這篇。\n\n' +
-    '按 OK 確認',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (ans !== ui.Button.OK) return;
+  Logger.log('===== 重置前 =====');
+  Logger.log('A queue_id: ' + before[0]);
+  Logger.log('I 主題: ' + before[8]);
+  Logger.log('P 排程狀態: ' + before[15]);
+  Logger.log('Q 發文時間: ' + before[16]);
+  Logger.log('R post_id: ' + before[17]);
+  Logger.log('S post_url: ' + before[18]);
+  Logger.log('T 錯誤訊息: ' + before[19]);
 
-  // 清 P (col 16) Q (17) R (18) S (19) T (20)
+  // 直接重置、不跳確認框（從 Apps Script 編輯器跳不出 UI）
+  // P (col 16) 草稿、Q (17) R (18) S (19) T (20) 清空
   sh.getRange(60, 16).setValue('草稿');
   sh.getRange(60, 17).clearContent();
   sh.getRange(60, 18).clearContent();
   sh.getRange(60, 19).clearContent();
   sh.getRange(60, 20).clearContent();
+  // 同時把 N/O 文圖審核設回「待審」（避免 6/8 觸發器以為雙審已過、反而跳過；你可以之後再到後台點「圖過」「文過」）
+  // 這裡保留原審核狀態、不動
 
-  ui.alert('✅ 列 60 已重置\n\nP=草稿，Q/R/S/T 已清空。\n6/8 觸發器會重新發 JUL_D31 這篇。');
+  const after = sh.getRange(60, 1, 1, 22).getValues()[0];
+  Logger.log('');
+  Logger.log('===== 重置後 =====');
+  Logger.log('P 排程狀態: ' + after[15]);
+  Logger.log('Q 發文時間: ' + (after[16] || '(空)'));
+  Logger.log('R post_id: ' + (after[17] || '(空)'));
+  Logger.log('S post_url: ' + (after[18] || '(空)'));
+  Logger.log('T 錯誤訊息: ' + (after[19] || '(空)'));
+  Logger.log('');
+  Logger.log('✅ 列 60 已重置、需手動重點「圖過/文過」才會重新變「已排程」。');
 }
