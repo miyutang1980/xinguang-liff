@@ -86,6 +86,29 @@
     .preview{flex-direction:column}
     .preview img{width:100%;max-width:200px}
   }
+  /* 歷史分析純 CSS 圖表 */
+  .bar-row{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:13px}
+  .bar-row .lbl{width:100px;color:#444;flex-shrink:0}
+  .bar-row .bar-wrap{flex:1;background:#f0f2f8;border-radius:4px;height:18px;position:relative;overflow:hidden}
+  .bar-row .bar{height:100%;background:linear-gradient(90deg,#1f3864,#3b5a9a);border-radius:4px;transition:width .3s}
+  .bar-row .bar.gold{background:linear-gradient(90deg,#d4a574,#e8c699)}
+  .bar-row .val{width:60px;text-align:right;color:#1f3864;font-weight:600}
+  .grouped-bar{display:flex;flex-direction:column;gap:2px;padding:4px 0}
+  .grouped-bar .month-row{display:grid;grid-template-columns:60px 1fr 1fr;gap:6px;align-items:center;font-size:12px}
+  .grouped-bar .month-row .ym{color:#666;font-weight:600}
+  .grouped-bar .mb{height:14px;background:#f0f2f8;border-radius:3px;position:relative;overflow:hidden}
+  .grouped-bar .mb .fill{height:100%;border-radius:3px}
+  .grouped-bar .mb.posts .fill{background:#1f3864}
+  .grouped-bar .mb.eng .fill{background:#d4a574}
+  .top-post-card{display:flex;gap:10px;padding:10px;border-bottom:1px solid var(--line);align-items:center}
+  .top-post-card:last-child{border-bottom:none}
+  .top-post-card img{width:60px;height:60px;object-fit:cover;border-radius:6px;background:#eee;flex-shrink:0}
+  .top-post-card .meta{flex:1;min-width:0}
+  .top-post-card .meta .ttl{font-size:13px;color:#333;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .top-post-card .meta .stats{font-size:12px;color:#666;margin-top:4px}
+  .top-post-card .pf{display:inline-block;padding:1px 6px;border-radius:3px;font-size:11px;font-weight:700;color:#fff;margin-right:6px}
+  .top-post-card .pf.IG{background:#e1306c}
+  .top-post-card .pf.FB{background:#1877f2}
 </style>
 </head>
 <body>
@@ -99,6 +122,7 @@
   <button data-tab="schedule">排程看板</button>
   <button data-tab="interactions">互動中心 <span class="badge-count" id="badge-unreplied">0</span></button>
   <button data-tab="insights">數據儀表</button>
+  <button data-tab="history">歷史分析</button>
   <button data-tab="bookings">預約管理 <span class="badge-count" id="badge-bookings">0</span></button>
   <button data-tab="rules">回覆規則</button>
 </nav>
@@ -153,6 +177,58 @@
       <div class="kpi"><div class="label">資料總筆</div><div class="num" id="ins-total">—</div></div>
     </div>
     <p style="color:var(--gray);font-size:13px">每日 23:00 自動快照。詳細圖表後續加上。</p>
+  </section>
+
+  <!-- ============= 歷史分析 ============= -->
+  <section id="tab-history">
+    <div class="kpis">
+      <div class="kpi"><div class="label">歷史貼文總數</div><div class="num" id="hist-total">—</div></div>
+      <div class="kpi"><div class="label">IG 貼文</div><div class="num" id="hist-ig">—</div></div>
+      <div class="kpi"><div class="label">FB 貼文</div><div class="num" id="hist-fb">—</div></div>
+      <div class="kpi"><div class="label">IG 粉絲</div><div class="num" id="hist-ig-followers">—</div></div>
+      <div class="kpi"><div class="label">FB 粉絲</div><div class="num" id="hist-fb-followers">—</div></div>
+    </div>
+    <div class="filter-bar">
+      <button class="btn ghost" onclick="loadHistory()">重新整理</button>
+      <span style="color:var(--gray);font-size:13px">資料來源：Historical_Posts · Audience_Snapshot</span>
+    </div>
+
+    <h3 style="margin:20px 0 8px;color:var(--navy)">月貼文量與互動趨勢</h3>
+    <div style="background:#fff;padding:14px;border:1px solid var(--line);border-radius:8px">
+      <div style="display:flex;gap:14px;font-size:12px;color:#666;margin-bottom:8px">
+        <span><span style="display:inline-block;width:10px;height:10px;background:#1f3864;border-radius:2px;margin-right:4px"></span>貼文數</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#d4a574;border-radius:2px;margin-right:4px"></span>互動數</span>
+      </div>
+      <div id="chart-monthly" class="grouped-bar">載入中...</div>
+    </div>
+
+    <h3 style="margin:20px 0 8px;color:var(--navy)">星期幾發文互動最高（平均互動）</h3>
+    <div style="background:#fff;padding:14px;border:1px solid var(--line);border-radius:8px">
+      <div id="chart-weekday">載入中...</div>
+    </div>
+
+    <h3 style="margin:20px 0 8px;color:var(--navy)">IG 受眾分布（最新快照）</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div style="background:#fff;padding:14px;border:1px solid var(--line);border-radius:8px">
+        <div style="font-size:12px;color:#666;margin-bottom:6px">年齡分佈</div>
+        <div id="chart-age">載入中...</div>
+      </div>
+      <div style="background:#fff;padding:14px;border:1px solid var(--line);border-radius:8px">
+        <div style="font-size:12px;color:#666;margin-bottom:6px">性別分佈</div>
+        <div id="chart-gender">載入中...</div>
+      </div>
+      <div style="background:#fff;padding:14px;border:1px solid var(--line);border-radius:8px">
+        <div style="font-size:12px;color:#666;margin-bottom:6px">Top 10 城市</div>
+        <div id="chart-city">載入中...</div>
+      </div>
+      <div style="background:#fff;padding:14px;border:1px solid var(--line);border-radius:8px">
+        <div style="font-size:12px;color:#666;margin-bottom:6px">近 30 天日新增粉絲</div>
+        <div id="chart-followers">載入中...</div>
+      </div>
+    </div>
+
+    <h3 style="margin:20px 0 8px;color:var(--navy)">Top 10 高互動貼文</h3>
+    <div id="hist-top-posts" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px">載入中...</div>
   </section>
 
   <!-- ============= 預約管理 ============= -->
@@ -239,6 +315,138 @@ function loadAll() {
     .withSuccessHandler(d => { renderInsightsKPIs(d || {}); })
     .withFailureHandler(err => { showError('getInsightsKPIs', err); })
     .getInsightsKPIs();
+  loadHistory();
+}
+
+function loadHistory() {
+  google.script.run
+    .withSuccessHandler(function(d){ renderHistory(d || {}); })
+    .withFailureHandler(function(err){ showError('getHistoricalAnalytics', err); })
+    .getHistoricalAnalytics();
+}
+
+function renderHistory(d) {
+  if (!d || !d.summary) {
+    document.getElementById('hist-total').textContent = '0';
+    return;
+  }
+  // KPI
+  document.getElementById('hist-total').textContent = d.summary.total || 0;
+  document.getElementById('hist-ig').textContent = d.summary.ig || 0;
+  document.getElementById('hist-fb').textContent = d.summary.fb || 0;
+  var au = d.audience || {};
+  document.getElementById('hist-ig-followers').textContent = (au.ig && au.ig.followers) || '—';
+  document.getElementById('hist-fb-followers').textContent = (au.fb && au.fb.followers) || '—';
+  
+  // 月度趨勢
+  var monthly = d.monthly || [];
+  var monthlyEl = document.getElementById('chart-monthly');
+  if (monthly.length === 0) {
+    monthlyEl.innerHTML = '<div style="color:#999;padding:20px;text-align:center">無資料</div>';
+  } else {
+    var maxPosts = Math.max.apply(null, monthly.map(function(m){return m.posts;}));
+    var maxEng = Math.max.apply(null, monthly.map(function(m){return m.engagement;}));
+    var html = '';
+    monthly.forEach(function(m){
+      var pPct = maxPosts > 0 ? (m.posts / maxPosts * 100) : 0;
+      var ePct = maxEng > 0 ? (m.engagement / maxEng * 100) : 0;
+      html += '<div class="month-row">'
+        + '<div class="ym">' + m.ym + '</div>'
+        + '<div class="mb posts" title="貼文數: ' + m.posts + '"><div class="fill" style="width:' + pPct + '%"></div></div>'
+        + '<div class="mb eng" title="互動數: ' + m.engagement + '"><div class="fill" style="width:' + ePct + '%"></div></div>'
+        + '</div>'
+        + '<div style="display:grid;grid-template-columns:60px 1fr 1fr;gap:6px;font-size:10px;color:#888;margin-bottom:4px">'
+        + '<div></div><div>' + m.posts + ' 貼</div><div>' + (m.engagement || 0).toLocaleString() + ' 互動</div>'
+        + '</div>';
+    });
+    monthlyEl.innerHTML = html;
+  }
+  
+  // weekday
+  var wd = d.weekdayHeat || [];
+  var wdEl = document.getElementById('chart-weekday');
+  if (wd.length === 0) {
+    wdEl.innerHTML = '<div style="color:#999;padding:20px;text-align:center">無資料</div>';
+  } else {
+    var maxAvg = Math.max.apply(null, wd.map(function(x){return x.avgEng;}));
+    var html = '';
+    wd.forEach(function(x){
+      var pct = maxAvg > 0 ? (x.avgEng / maxAvg * 100) : 0;
+      html += '<div class="bar-row">'
+        + '<div class="lbl">' + x.name + ' (' + x.posts + ')</div>'
+        + '<div class="bar-wrap"><div class="bar gold" style="width:' + pct + '%"></div></div>'
+        + '<div class="val">' + x.avgEng.toFixed(1) + '</div>'
+        + '</div>';
+    });
+    wdEl.innerHTML = html;
+  }
+  
+  // IG 受眾
+  renderBarList('chart-age', (au.ig && au.ig.age) || []);
+  renderBarList('chart-gender', (au.ig && au.ig.gender) || []);
+  renderBarList('chart-city', (au.ig && au.ig.city) || []);
+  
+  // 日新增粉絲
+  var df = au.dailyFollowers || [];
+  var dfEl = document.getElementById('chart-followers');
+  if (df.length === 0) {
+    dfEl.innerHTML = '<div style="color:#999;padding:20px;text-align:center">無資料（IG follower_count 可能需要足夠粉絲才能抽）</div>';
+  } else {
+    var maxV = Math.max.apply(null, df.map(function(x){return Math.abs(x.value);}));
+    var html = '';
+    df.forEach(function(x){
+      var pct = maxV > 0 ? (Math.abs(x.value) / maxV * 100) : 0;
+      var color = x.value < 0 ? '#c0392b' : '#1f3864';
+      html += '<div class="bar-row" style="font-size:11px">'
+        + '<div class="lbl" style="width:80px">' + x.date.substring(5) + '</div>'
+        + '<div class="bar-wrap"><div class="bar" style="width:' + pct + '%;background:' + color + '"></div></div>'
+        + '<div class="val">' + (x.value > 0 ? '+' : '') + x.value + '</div>'
+        + '</div>';
+    });
+    dfEl.innerHTML = html;
+  }
+  
+  // top posts
+  var tp = d.topPosts || [];
+  var tpEl = document.getElementById('hist-top-posts');
+  if (tp.length === 0) {
+    tpEl.innerHTML = '<div style="color:#999;padding:20px;text-align:center">無資料</div>';
+  } else {
+    var html = '';
+    tp.forEach(function(p, i){
+      var thumb = p.thumb || '';
+      var captionEsc = (p.caption || '').replace(/</g, '&lt;');
+      html += '<div class="top-post-card">'
+        + '<img src="' + thumb + '" onerror="this.style.background=\'#ddd\';this.removeAttribute(\'src\');">'
+        + '<div class="meta">'
+        + '<div><span class="pf ' + p.platform + '">' + p.platform + '</span><span style="color:#666;font-size:11px">' + (p.ts || '') + ' · ' + (p.type || '') + '</span></div>'
+        + '<div class="ttl">' + (captionEsc || '（無文字）') + '</div>'
+        + '<div class="stats">互動 <b>' + p.engagement + '</b> · 讚 ' + p.likes + ' · 留 ' + p.comments + ' · 分 ' + p.shares + ' · 存 ' + p.saved + (p.reach ? ' · 觸及 ' + p.reach : '') + '</div>'
+        + '</div>'
+        + '<a href="' + (p.permalink || '#') + '" target="_blank" class="btn ghost" style="font-size:11px">查看</a>'
+        + '</div>';
+    });
+    tpEl.innerHTML = html;
+  }
+}
+
+function renderBarList(elId, items) {
+  var el = document.getElementById(elId);
+  if (!items || items.length === 0) {
+    el.innerHTML = '<div style="color:#999;padding:10px;text-align:center;font-size:12px">無資料</div>';
+    return;
+  }
+  var maxV = Math.max.apply(null, items.map(function(x){return x.value;}));
+  var html = '';
+  items.forEach(function(x){
+    var pct = maxV > 0 ? (x.value / maxV * 100) : 0;
+    html += '<div class="bar-row">'
+      + '<div class="lbl">' + x.dim + '</div>'
+      + '<div class="bar-wrap"><div class="bar" style="width:' + pct + '%"></div></div>'
+      + '<div class="val">' + x.value + '</div>'
+      + '</div>';
+  });
+  el.innerHTML = html;
 }
 
 function showError(fnName, err) {

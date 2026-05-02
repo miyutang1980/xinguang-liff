@@ -290,6 +290,166 @@ function getAvailableImages(rowNum) {
   };
 }
 
+/* ========== 歷史分析（Historical_Posts + Audience_Snapshot 串連） ========== */
+function getHistoricalAnalytics() {
+  const ss = SpreadsheetApp.openById(DASH_SS_ID);
+  const out = {
+    summary: { total: 0, ig: 0, fb: 0, byType: {} },
+    monthly: [],
+    topPosts: [],
+    weekdayHeat: [],
+    audience: { ig: {}, fb: {}, dailyFollowers: [] },
+    error: null
+  };
+  try {
+    const sh = ss.getSheetByName('Historical_Posts');
+    if (!sh || sh.getLastRow() < 2) {
+      out.error = '尚未跑歷史回填、Historical_Posts 沒資料';
+      return out;
+    }
+    const last = sh.getLastRow();
+    const data = sh.getRange(2, 1, last - 1, 18).getValues();
+    // 欄位：0抓取時間 1平台 2貼文ID 3發布時間 4類型 5永久連結 6主圖URL 7說明文字
+    //       8按讚 9留言 10分享 11儲存 12觸及 13曝光 14影片觀看 15平均觀看秒 16完看率 17caption_前60字
+    const monthly = {};      // YYYY-MM => { posts, reach, engagement, byPlatform: {IG, FB} }
+    const weekdayMap = [0,0,0,0,0,0,0]; // 週一~週日 互動
+    const weekdayCount = [0,0,0,0,0,0,0];
+    const topByEng = [];
+    
+    data.forEach(function(r){
+      const platform = String(r[1] || '');
+      const ts = String(r[3] || '');
+      const type = String(r[4] || '');
+      const permalink = String(r[5] || '');
+      const thumb = String(r[6] || '');
+      const captionShort = String(r[17] || '');
+      const likes = Number(r[8]) || 0;
+      const comments = Number(r[9]) || 0;
+      const shares = Number(r[10]) || 0;
+      const saved = Number(r[11]) || 0;
+      const reach = Number(r[12]) || 0;
+      const videoViews = Number(r[14]) || 0;
+      const eng = likes + comments + shares + saved;
+      
+      out.summary.total++;
+      if (platform === 'IG') out.summary.ig++;
+      else if (platform === 'FB') out.summary.fb++;
+      out.summary.byType[type] = (out.summary.byType[type] || 0) + 1;
+      
+      // monthly
+      if (ts.length >= 7) {
+        const ym = ts.substring(0, 7);
+        if (!monthly[ym]) monthly[ym] = { posts: 0, reach: 0, engagement: 0, ig: 0, fb: 0, videoViews: 0 };
+        monthly[ym].posts++;
+        monthly[ym].reach += reach;
+        monthly[ym].engagement += eng;
+        monthly[ym].videoViews += videoViews;
+        if (platform === 'IG') monthly[ym].ig++; else if (platform === 'FB') monthly[ym].fb++;
+      }
+      
+      // weekday（用發布時間推算）
+      if (ts.length >= 10) {
+        try {
+          const d = new Date(ts.replace(' ', 'T') + ':00+08:00');
+          if (!isNaN(d.getTime())) {
+            const wd = (d.getDay() + 6) % 7; // 週一=0、週日=6
+            weekdayMap[wd] += eng;
+            weekdayCount[wd]++;
+          }
+        } catch (e) {}
+      }
+      
+      topByEng.push({
+        platform: platform,
+        ts: ts,
+        type: type,
+        permalink: permalink,
+        thumb: thumb,
+        caption: captionShort,
+        likes: likes, comments: comments, shares: shares, saved: saved,
+        reach: reach, videoViews: videoViews,
+        engagement: eng
+      });
+    });
+    
+    // monthly array 排序
+    out.monthly = Object.keys(monthly).sort().map(function(ym){
+      return Object.assign({ ym: ym }, monthly[ym]);
+    });
+    
+    // weekday heatmap
+    const wdNames = ['週一','週二','週三','週四','週五','週六','週日'];
+    out.weekdayHeat = wdNames.map(function(name, i){
+      return {
+        name: name,
+        avgEng: weekdayCount[i] > 0 ? Math.round(weekdayMap[i] / weekdayCount[i] * 10) / 10 : 0,
+        posts: weekdayCount[i]
+      };
+    });
+    
+    // top 10 posts by engagement
+    topByEng.sort(function(a, b){ return b.engagement - a.engagement; });
+    out.topPosts = topByEng.slice(0, 10);
+  } catch (e) {
+    out.error = '歷史貼文讀取失敗: ' + String(e);
+  }
+  
+  // 受眾洞察
+  try {
+    const ash = ss.getSheetByName('Audience_Snapshot');
+    if (ash && ash.getLastRow() > 1) {
+      const adata = ash.getRange(2, 1, ash.getLastRow() - 1, 6).getValues();
+      // 取每個指標最新一筆
+      const latest = {}; // key = platform|metric|dim => row
+      adata.forEach(function(r){
+        const ts = String(r[0] || '');
+        const platform = String(r[1] || '');
+        const metric = String(r[2] || '');
+        const dim = String(r[3] || '');
+        const value = r[4];
+        const note = String(r[5] || '');
+        const key = platform + '|' + metric + '|' + dim;
+        if (!latest[key] || latest[key].ts < ts) {
+          latest[key] = { ts: ts, platform: platform, metric: metric, dim: dim, value: value, note: note };
+        }
+      });
+      
+      const igAge = [], igGender = [], igCity = [], igCountry = [], dailyFollowers = [];
+      Object.keys(latest).forEach(function(k){
+        const v = latest[k];
+        if (v.platform === 'IG') {
+          if (v.metric === '粉絲總數' && v.dim === '當前') out.audience.ig.followers = v.value;
+          else if (v.metric === '貼文總數') out.audience.ig.mediaCount = v.value;
+          else if (v.metric === '受眾_age') igAge.push({ dim: v.dim, value: Number(v.value) || 0 });
+          else if (v.metric === '受眾_gender') igGender.push({ dim: v.dim, value: Number(v.value) || 0 });
+          else if (v.metric === '受眾_city') igCity.push({ dim: v.dim, value: Number(v.value) || 0 });
+          else if (v.metric === '受眾_country') igCountry.push({ dim: v.dim, value: Number(v.value) || 0 });
+          else if (v.metric === '日新增粉絲') dailyFollowers.push({ date: v.dim, value: Number(v.value) || 0 });
+        } else if (v.platform === 'FB') {
+          if (v.metric === '粉絲總數' && v.dim === '當前') out.audience.fb.followers = v.value;
+          else if (v.metric === '28天觸及人數') out.audience.fb.reach28d = v.value;
+          else if (v.metric === '28天新增粉絲') out.audience.fb.fanAdds28d = v.value;
+          else if (v.metric === '28天貼文互動') out.audience.fb.engagement28d = v.value;
+        }
+      });
+      igAge.sort(function(a,b){return String(a.dim).localeCompare(String(b.dim));});
+      igCity.sort(function(a,b){return b.value - a.value;});
+      igCountry.sort(function(a,b){return b.value - a.value;});
+      dailyFollowers.sort(function(a,b){return String(a.date).localeCompare(String(b.date));});
+      out.audience.ig.age = igAge;
+      out.audience.ig.gender = igGender;
+      out.audience.ig.city = igCity.slice(0, 10);
+      out.audience.ig.country = igCountry.slice(0, 10);
+      out.audience.dailyFollowers = dailyFollowers.slice(-30);
+    }
+  } catch (e) {
+    // 忽略
+  }
+  
+  // force JSON 序列化、避免 GAS Date 物件不能傳
+  return JSON.parse(JSON.stringify(out));
+}
+
 // 從備檔池(Z)拉一張到主圖位置
 function promoteBackupToMain(rowNum, fileId) {
   const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
