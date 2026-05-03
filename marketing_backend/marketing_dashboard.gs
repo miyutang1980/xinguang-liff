@@ -999,3 +999,111 @@ function hist_yearWeek_(dt) {
   const wn = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
   return d.getFullYear() + '-W' + (wn<10?'0':'') + wn;
 }
+
+/**
+ * 重新抓取 Top N 高互動貼文的縮圖（IG/FB CDN URL 約 24h 失效）
+ * 從 Historical_Posts 找互動 = 讚+留言+分享+存 最高的前 limit 筆、
+ * 打 Graph API 拿最新 media_url / full_picture、寫回 G 欄
+ *
+ * @param {number} limit 預設 50（Top 10 + 緩衝）
+ * @return {object} { ok, total, updated, failed, skipped, log }
+ */
+function refreshTopPostThumbs(limit) {
+  limit = limit || 50;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName('Historical_Posts');
+  if (!sh) return { ok: false, error: 'Historical_Posts 不存在' };
+
+  // 讀 token
+  const settings = ss.getSheetByName('Settings');
+  let token = '';
+  if (settings) {
+    const sd = settings.getRange(1,1,settings.getLastRow(),2).getValues();
+    for (const r of sd) {
+      if (String(r[0]) === 'FB_PAGE_TOKEN') { token = String(r[1] || ''); break; }
+    }
+  }
+  if (!token) return { ok: false, error: 'FB_PAGE_TOKEN 未設' };
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return { ok: true, total: 0, updated: 0, log: '無資料' };
+
+  // 抓 A:R（18 欄）所有資料
+  const data = sh.getRange(2, 1, lastRow - 1, 18).getValues();
+  // 計算每列互動、排序找 Top
+  const indexed = data.map(function(r, i){
+    const eng = (Number(r[8])||0) + (Number(r[9])||0) + (Number(r[10])||0) + (Number(r[11])||0);
+    return { rowIdx: i + 2, platform: r[1], pid: String(r[2]||''), thumb: String(r[6]||''), eng: eng };
+  });
+  indexed.sort(function(a,b){ return b.eng - a.eng; });
+  const tops = indexed.slice(0, limit);
+
+  let updated = 0, failed = 0, skipped = 0;
+  const logs = [];
+  const apiBase = 'https' + '://graph.facebook.com/v19.0/';
+
+  for (let i = 0; i < tops.length; i++) {
+    const t = tops[i];
+    if (!t.pid) { skipped++; continue; }
+    const pid = t.pid.replace(/^IG:/, '').replace(/^FB:/, '');
+
+    let newThumb = '';
+    try {
+      if (t.platform === 'IG') {
+        // IG: 拿 media_url + thumbnail_url（影片用 thumbnail_url、圖片用 media_url）
+        const url = apiBase + pid + '?fields=' + encodeURIComponent('media_type,media_url,thumbnail_url') + '&access_token=' + token;
+        const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        if (resp.getResponseCode() === 200) {
+          const j = JSON.parse(resp.getContentText());
+          // 影片優先 thumbnail_url（圖片才用 media_url）
+          if (j.media_type === 'VIDEO' || j.media_type === 'REELS') {
+            newThumb = j.thumbnail_url || j.media_url || '';
+          } else {
+            newThumb = j.media_url || j.thumbnail_url || '';
+          }
+        } else {
+          logs.push('IG ' + pid + ' HTTP ' + resp.getResponseCode());
+        }
+      } else if (t.platform === 'FB') {
+        // FB: full_picture
+        const url = apiBase + pid + '?fields=full_picture&access_token=' + token;
+        const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        if (resp.getResponseCode() === 200) {
+          const j = JSON.parse(resp.getContentText());
+          newThumb = j.full_picture || '';
+        } else {
+          logs.push('FB ' + pid + ' HTTP ' + resp.getResponseCode());
+        }
+      } else {
+        skipped++;
+        continue;
+      }
+
+      if (newThumb && newThumb !== t.thumb) {
+        sh.getRange(t.rowIdx, 7).setValue(newThumb); // G 欄
+        updated++;
+      } else if (!newThumb) {
+        failed++;
+      } else {
+        skipped++; // 沒變
+      }
+    } catch (e) {
+      failed++;
+      logs.push(t.platform + ' ' + pid + ' err: ' + String(e));
+    }
+
+    // API rate limit 緩衝
+    if (i % 10 === 9) Utilities.sleep(500);
+  }
+
+  const result = {
+    ok: true,
+    total: tops.length,
+    updated: updated,
+    failed: failed,
+    skipped: skipped,
+    log: logs.slice(0, 10).join(' | ') || '完成'
+  };
+  Logger.log(JSON.stringify(result));
+  return result;
+}

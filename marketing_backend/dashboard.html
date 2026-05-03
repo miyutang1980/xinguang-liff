@@ -303,7 +303,11 @@
       </div>
     </div>
 
-    <h3 style="margin:20px 0 8px;color:var(--navy)">Top 10 高互動貼文</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:20px 0 8px">
+      <h3 style="margin:0;color:var(--navy)">Top 10 高互動貼文</h3>
+      <button class="btn ghost" onclick="refreshThumbs()" id="btn-refresh-thumbs" style="font-size:12px">🔄 重抓縮圖（修破圖）</button>
+    </div>
+    <div id="thumb-refresh-status" style="display:none;font-size:12px;margin-bottom:8px;padding:8px 12px;border-radius:6px"></div>
     <div id="hist-top-posts" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px">載入中...</div>
   </section>
 
@@ -931,6 +935,43 @@ function renderBarList(elId, items) {
       + '</div>';
   });
   el.innerHTML = html;
+}
+
+function refreshThumbs() {
+  var btn = document.getElementById('btn-refresh-thumbs');
+  var status = document.getElementById('thumb-refresh-status');
+  if (!btn || !status) return;
+  if (!confirm('將重新向 IG/FB API 拼取前 50 篇高互動貼文的最新縮圖、約 30 秒。是否繼續？')) return;
+  btn.disabled = true;
+  btn.textContent = '重抓中、請稍候...';
+  status.style.display = 'block';
+  status.style.background = '#fff8e6';
+  status.style.color = '#7a5a00';
+  status.textContent = '⚡ 正在呼叫 IG/FB Graph API、預計 30 秒...';
+  google.script.run
+    .withSuccessHandler(function(r){
+      btn.disabled = false;
+      btn.textContent = '🔄 重抓縮圖（修破圖）';
+      if (!r || !r.ok) {
+        status.style.background = '#fce0e0';
+        status.style.color = '#892020';
+        status.textContent = '❌ 失敗：' + ((r && r.error) || '未知錯誤');
+        return;
+      }
+      status.style.background = '#dcf3e1';
+      status.style.color = '#1c6a30';
+      status.textContent = '✅ 完成：共 ' + r.total + ' 篇、更新 ' + r.updated + ' 篇、跳過 ' + r.skipped + ' 、失敗 ' + r.failed + '。重新載入 Top 10...';
+      // 重新載入歷史分析頁
+      setTimeout(function(){ loadHistory(); }, 800);
+    })
+    .withFailureHandler(function(err){
+      btn.disabled = false;
+      btn.textContent = '🔄 重抓縮圖（修破圖）';
+      status.style.background = '#fce0e0';
+      status.style.color = '#892020';
+      status.textContent = '❌ ' + ((err && err.message) || err);
+    })
+    .refreshTopPostThumbs(50);
 }
 
 function showError(fnName, err) {
