@@ -158,8 +158,11 @@
 
   <!-- ============= 排程看板 ============= -->
   <section id="tab-schedule">
-    <h2>未來 7 天排程</h2>
-    <div id="schedule-list" class="loading">載入中...</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h2 style="margin:0">未來 14 天排程（FB + IG 全部）</h2>
+      <button class="btn ghost" onclick="loadFutureSchedule()">重新整理</button>
+    </div>
+    <div id="future-schedule-list" class="loading">載入中...</div>
   </section>
 
   <!-- ============= 互動中心 ============= -->
@@ -170,17 +173,43 @@
 
   <!-- ============= 數據儀表 ============= -->
   <section id="tab-insights">
-    <div class="kpis">
-      <div class="kpi"><div class="label">7 天觸及</div><div class="num" id="ins-reach">—</div></div>
-      <div class="kpi"><div class="label">7 天互動</div><div class="num" id="ins-eng">—</div></div>
-      <div class="kpi"><div class="label">7 天發文數</div><div class="num" id="ins-posts">—</div></div>
-      <div class="kpi"><div class="label">資料總筆</div><div class="num" id="ins-total">—</div></div>
+    <div class="filter-bar">
+      <span style="color:var(--gray);font-size:13px;margin-right:8px">順看期間：</span>
+      <button class="btn ghost" onclick="setKpiRange(7)" id="btn-r7">7 天</button>
+      <button class="btn gold" onclick="setKpiRange(30)" id="btn-r30">30 天</button>
+      <button class="btn ghost" onclick="setKpiRange(90)" id="btn-r90">90 天</button>
     </div>
-    <p style="color:var(--gray);font-size:13px">每日 23:00 自動快照。詳細圖表後續加上。</p>
+    <div class="kpis" id="kpi-range-wrap">
+      <div class="kpi"><div class="label" id="lbl-ig-posts">30 天 IG 發文</div><div class="num" id="kpi-ig-posts">—</div></div>
+      <div class="kpi"><div class="label" id="lbl-ig-avg">30 天 IG 單篇平均</div><div class="num" id="kpi-ig-avg">—</div></div>
+      <div class="kpi"><div class="label" id="lbl-fb-posts">30 天 FB 發文</div><div class="num" id="kpi-fb-posts">—</div></div>
+      <div class="kpi"><div class="label" id="lbl-fb-avg">30 天 FB 單篇平均</div><div class="num" id="kpi-fb-avg">—</div></div>
+    </div>
+    <div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:14px">
+      <h3 style="margin:0 0 12px 0;font-size:15px">每日互動趨勢</h3>
+      <div id="chart-daily-range" class="loading" style="min-height:120px">載入中...</div>
+    </div>
+    <div class="kpis" style="margin-top:14px">
+      <div class="kpi"><div class="label">資料總筆（歷史）</div><div class="num" id="ins-total">—</div></div>
+      <div class="kpi"><div class="label">7 天 Audience 觸及</div><div class="num" id="ins-reach">—</div></div>
+      <div class="kpi"><div class="label">7 天 Audience 互動</div><div class="num" id="ins-eng">—</div></div>
+      <div class="kpi"><div class="label">7 天 Audience 發文數</div><div class="num" id="ins-posts">—</div></div>
+    </div>
+    <p style="color:var(--gray);font-size:13px;margin-top:8px">點上方 7/30/90 切換 IG/FB 範圍 KPI；底排為 Audience_Snapshot 7 天快照。</p>
   </section>
 
   <!-- ============= 歷史分析 ============= -->
   <section id="tab-history">
+
+    <!-- 中文自動洞察 + 戰術建議 -->
+    <div style="background:linear-gradient(135deg,#fef9f3,#f5e6c8);border:2px solid #d4a574;border-radius:12px;padding:18px;margin-bottom:20px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="margin:0;color:var(--navy);font-size:18px">📊 今日中文洞察 + 戰術建議</h2>
+        <button class="btn ghost" onclick="loadInsightsAuto()" style="font-size:12px">重新分析</button>
+      </div>
+      <div id="insights-auto" class="loading" style="font-size:14px">載入中...</div>
+    </div>
+
     <div class="kpis">
       <div class="kpi"><div class="label">歷史貼文總數</div><div class="num" id="hist-total">—</div></div>
       <div class="kpi"><div class="label">IG 貼文</div><div class="num" id="hist-ig">—</div></div>
@@ -291,6 +320,8 @@ document.querySelectorAll('nav button').forEach(b => {
   });
 });
 
+var currentRange = 30;
+
 function loadAll() {
   document.getElementById('header-meta').textContent = '載入中...';
   google.script.run
@@ -316,6 +347,9 @@ function loadAll() {
     .withFailureHandler(err => { showError('getInsightsKPIs', err); })
     .getInsightsKPIs();
   loadHistory();
+  loadInsightsAuto();
+  loadFutureSchedule();
+  setKpiRange(currentRange);
 }
 
 function loadHistory() {
@@ -323,6 +357,162 @@ function loadHistory() {
     .withSuccessHandler(function(d){ renderHistory(d || {}); })
     .withFailureHandler(function(err){ showError('getHistoricalAnalytics', err); })
     .getHistoricalAnalytics();
+}
+
+/* ========== 中文自動洞察 ========== */
+function loadInsightsAuto() {
+  var el = document.getElementById('insights-auto');
+  if (el) el.innerHTML = '<div class="loading">分析中...</div>';
+  google.script.run
+    .withSuccessHandler(function(d){ renderInsightsAuto(d || {insights:[]}); })
+    .withFailureHandler(function(err){ showError('getInsightsAuto', err); if(el) el.innerHTML = '<div style="color:#c00">分析失敗：' + (err && err.message || err) + '</div>'; })
+    .getInsightsAuto();
+}
+
+function renderInsightsAuto(d) {
+  var el = document.getElementById('insights-auto');
+  if (!el) return;
+  var arr = (d && d.insights) || [];
+  if (!arr.length) {
+    el.innerHTML = '<div style="color:#999;text-align:center;padding:20px">尚無可用洞察，請先跡 backfillIGHistorical / backfillFBHistorical</div>';
+    return;
+  }
+  var colorMap = {
+    critical: { bg:'#fff0f0', border:'#ff6b6b', label:'#c92a2a' },
+    warning:  { bg:'#fff7e6', border:'#ffa94d', label:'#d9480f' },
+    opportunity: { bg:'#ebfbee', border:'#51cf66', label:'#2b8a3e' }
+  };
+  var html = arr.map(function(it){
+    var c = colorMap[it.type] || colorMap.opportunity;
+    var icon = it.icon || '';
+    var title = escapeText(it.title || '');
+    var detail = escapeText(it.detail || '');
+    var action = escapeText(it.action || '');
+    return '<div style="background:' + c.bg + ';border-left:4px solid ' + c.border + ';border-radius:8px;padding:14px;margin-bottom:10px">' +
+      '<div style="font-weight:700;color:' + c.label + ';font-size:15px;margin-bottom:6px">' + icon + ' ' + title + '</div>' +
+      '<div style="color:#444;font-size:13px;margin-bottom:8px;line-height:1.6">' + detail + '</div>' +
+      (action ? '<div style="background:#fff;border:1px dashed ' + c.border + ';border-radius:6px;padding:8px 10px;font-size:13px;color:#222"><b>戰術建議：</b>' + action + '</div>' : '') +
+      '</div>';
+  }).join('');
+  var meta = d.generated_at ? '<div style="color:#888;font-size:12px;margin-top:8px;text-align:right">生成時間：' + escapeText(d.generated_at) + '</div>' : '';
+  el.innerHTML = html + meta;
+}
+
+/* ========== 未來 14 天排程 ========== */
+function loadFutureSchedule() {
+  var el = document.getElementById('future-schedule-list');
+  if (el) el.innerHTML = '<div class="loading">載入中...</div>';
+  google.script.run
+    .withSuccessHandler(function(d){ renderFutureSchedule(d || []); })
+    .withFailureHandler(function(err){ showError('getFutureSchedule', err); if(el) el.innerHTML = '<div style="color:#c00">載入失敗：' + (err && err.message || err) + '</div>'; })
+    .getFutureSchedule();
+}
+
+function renderFutureSchedule(arr) {
+  var el = document.getElementById('future-schedule-list');
+  if (!el) return;
+  if (!arr || !arr.length) {
+    el.innerHTML = '<div style="color:#999;text-align:center;padding:30px">未來 14 天無排程。請到 Posting_Queue 設定新貦文。</div>';
+    return;
+  }
+  // 依日期分組
+  var groups = {};
+  arr.forEach(function(it){ if (!groups[it.date]) groups[it.date] = []; groups[it.date].push(it); });
+  var dates = Object.keys(groups).sort();
+  var html = dates.map(function(date){
+    var items = groups[date];
+    var wk = items[0].weekday || '';
+    var cards = items.map(function(it){
+      var pColor = it.platform === 'FB' ? '#1877f2' : '#e1306c';
+      var pBg = it.platform === 'FB' ? '#e7f3ff' : '#fce4ec';
+      var imgOk = it.img_review === '✅ 通過' || it.img_review === '通過';
+      var copyOk = it.copy_review === '✅ 通過' || it.copy_review === '通過';
+      var statusBadge = it.status ? '<span style="background:#fff3cd;color:#856404;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px">' + escapeText(it.status) + '</span>' : '';
+      var checks = (imgOk?'圖✅':'圖⏳') + ' ' + (copyOk?'文✅':'文⏳');
+      var thumb = it.thumb && it.thumb.indexOf('http') === 0 ?
+        '<img src="' + escapeAttr(it.thumb) + '" style="width:42px;height:42px;border-radius:6px;object-fit:cover;flex-shrink:0" onerror="this.style.display=&#39;none&#39;">' : '';
+      return '<div style="display:flex;gap:10px;align-items:center;padding:10px;background:' + pBg + ';border-radius:8px;margin-bottom:6px;border-left:3px solid ' + pColor + '">' +
+        thumb +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:13px;color:#222"><b style="color:' + pColor + '">' + escapeText(it.platform) + '</b> <span style="color:#555">' + escapeText(it.time) + '</span> ' + escapeText(it.ratio || '') + statusBadge + '</div>' +
+          '<div style="font-size:13px;color:#444;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeText(it.theme || it.headline || '未設主題') + '</div>' +
+          '<div style="font-size:11px;color:#888;margin-top:2px">' + checks + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    return '<div style="margin-bottom:14px">' +
+      '<div style="font-weight:700;color:var(--navy);margin-bottom:8px;font-size:14px">' + escapeText(date) + '（週' + escapeText(wk) + '）<span style="color:#888;font-weight:400;font-size:12px">　' + items.length + ' 篇</span></div>' +
+      cards +
+      '</div>';
+  }).join('');
+  var totalIG = arr.filter(function(x){return x.platform==='IG';}).length;
+  var totalFB = arr.filter(function(x){return x.platform==='FB';}).length;
+  var summary = '<div style="background:#f7f3eb;border-radius:8px;padding:10px;margin-bottom:14px;font-size:13px;color:#555">未來 14 天共 <b style="color:var(--navy)">' + arr.length + '</b> 篇：IG ' + totalIG + ' 篇、FB ' + totalFB + ' 篇</div>';
+  el.innerHTML = summary + html;
+}
+
+/* ========== 7/30/90 天切換 ========== */
+function setKpiRange(days) {
+  currentRange = days;
+  ['btn-r7','btn-r30','btn-r90'].forEach(function(id){
+    var b = document.getElementById(id);
+    if (b) { b.classList.remove('gold'); b.classList.add('ghost'); }
+  });
+  var active = document.getElementById('btn-r' + days);
+  if (active) { active.classList.remove('ghost'); active.classList.add('gold'); }
+  // 更新標題
+  ['ig-posts','ig-avg','fb-posts','fb-avg'].forEach(function(k){
+    var lbl = document.getElementById('lbl-' + k);
+    if (lbl) lbl.textContent = lbl.textContent.replace(/\d+ 天/, days + ' 天');
+  });
+  ['kpi-ig-posts','kpi-ig-avg','kpi-fb-posts','kpi-fb-avg'].forEach(function(id){
+    var n = document.getElementById(id); if (n) n.textContent = '...';
+  });
+  var ch = document.getElementById('chart-daily-range');
+  if (ch) ch.innerHTML = '<div class="loading">載入中...</div>';
+  google.script.run
+    .withSuccessHandler(function(d){ renderKpiRange(d || {}); })
+    .withFailureHandler(function(err){ showError('getKpisRange', err); if(ch) ch.innerHTML = '<div style="color:#c00">載入失敗</div>'; })
+    .getKpisRange(days);
+}
+
+function renderKpiRange(d) {
+  var ig = (d && d.ig) || { posts:0, avg:0 };
+  var fb = (d && d.fb) || { posts:0, avg:0 };
+  document.getElementById('kpi-ig-posts').textContent = ig.posts || 0;
+  document.getElementById('kpi-ig-avg').textContent = ig.avg || 0;
+  document.getElementById('kpi-fb-posts').textContent = fb.posts || 0;
+  document.getElementById('kpi-fb-avg').textContent = fb.avg || 0;
+  // 趨勢圖
+  var daily = (d && d.daily) || [];
+  var ch = document.getElementById('chart-daily-range');
+  if (!ch) return;
+  if (!daily.length) { ch.innerHTML = '<div style="color:#999;padding:20px;text-align:center">無資料</div>'; return; }
+  var maxV = 1;
+  daily.forEach(function(x){ if (x.ig > maxV) maxV = x.ig; if (x.fb > maxV) maxV = x.fb; });
+  var bars = daily.map(function(x){
+    var hIg = Math.round((x.ig / maxV) * 100);
+    var hFb = Math.round((x.fb / maxV) * 100);
+    return '<div style="display:inline-block;width:' + (100/daily.length).toFixed(2) + '%;text-align:center;vertical-align:bottom">' +
+      '<div style="display:flex;justify-content:center;align-items:flex-end;height:100px;gap:1px">' +
+        '<div title="IG ' + x.ig + '" style="width:6px;background:#e1306c;height:' + hIg + '%"></div>' +
+        '<div title="FB ' + x.fb + '" style="width:6px;background:#1877f2;height:' + hFb + '%"></div>' +
+      '</div>' +
+      '<div style="font-size:9px;color:#888;transform:rotate(-45deg);transform-origin:center top;margin-top:6px;white-space:nowrap">' + escapeText(x.date) + '</div>' +
+    '</div>';
+  }).join('');
+  ch.innerHTML = '<div style="white-space:nowrap;overflow-x:auto;padding-bottom:30px">' + bars + '</div>' +
+    '<div style="margin-top:8px;font-size:12px;color:#666"><span style="display:inline-block;width:10px;height:10px;background:#e1306c;border-radius:2px;margin-right:4px"></span>IG　<span style="display:inline-block;width:10px;height:10px;background:#1877f2;border-radius:2px;margin:0 4px 0 12px"></span>FB</div>';
+}
+
+/* ========== HTML 轉義工具 ========== */
+function escapeText(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escapeAttr(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 function renderHistory(d) {

@@ -478,3 +478,280 @@ function promoteBackupToMain(rowNum, fileId) {
   sh.getRange(rowNum, 14).setValue('待審');
   return { ok: true };
 }
+
+/* ========== 中文自動洞察（核心功能：開後台 5 分鐘看完就知道下一步）========== */
+function getInsightsAuto() {
+  const ss = SpreadsheetApp.openById(DASH_SS_ID);
+  const sh = ss.getSheetByName('Historical_Posts');
+  const out = { insights: [], generated_at: Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm') };
+  if (!sh || sh.getLastRow() < 2) {
+    out.insights.push({ type: 'warning', icon: '⚠️', title: '尚無歷史數據', detail: '先跑 backfillIGHistorical + backfillFBHistorical' });
+    return out;
+  }
+  
+  const data = sh.getRange(2, 1, sh.getLastRow() - 1, 18).getValues();
+  
+  // 統計
+  const stats = { ig: { count: 0, eng: 0, video: 0, image: 0, video_eng: 0, image_eng: 0 }, fb: { count: 0, eng: 0 } };
+  const byHour = {}; // hour => { ig_count, ig_eng, fb_count, fb_eng }
+  const byWk = {};
+  const byMonth = {};
+  const allPosts = [];
+  
+  data.forEach(function(r){
+    const platform = String(r[1] || '');
+    const ts = tsToString_(r[3]);
+    const type = String(r[4] || '');
+    const likes = Number(r[8]) || 0;
+    const comments = Number(r[9]) || 0;
+    const shares = Number(r[10]) || 0;
+    const eng = likes + comments + shares;
+    
+    let dt;
+    try {
+      dt = new Date(ts.replace(' ', 'T') + ':00+08:00');
+      if (isNaN(dt.getTime())) return;
+    } catch(e) { return; }
+    
+    const hour = dt.getHours();
+    const wk = ['日','一','二','三','四','五','六'][dt.getDay()];
+    const month = Utilities.formatDate(dt, 'Asia/Taipei', 'yyyy-MM');
+    
+    allPosts.push({ ts: ts, platform: platform, type: type, eng: eng, hour: hour, wk: wk, month: month, permalink: String(r[5]||''), caption: String(r[17]||'') });
+    
+    if (platform === 'IG') {
+      stats.ig.count++; stats.ig.eng += eng;
+      if (type === 'VIDEO' || type === 'REELS') { stats.ig.video++; stats.ig.video_eng += eng; }
+      else { stats.ig.image++; stats.ig.image_eng += eng; }
+    } else if (platform === 'FB') {
+      stats.fb.count++; stats.fb.eng += eng;
+    }
+    
+    if (!byHour[hour]) byHour[hour] = { ig_c:0, ig_e:0, fb_c:0, fb_e:0 };
+    if (!byWk[wk]) byWk[wk] = { ig_c:0, ig_e:0, fb_c:0, fb_e:0 };
+    if (!byMonth[month]) byMonth[month] = { ig_c:0, ig_e:0, fb_c:0, fb_e:0 };
+    
+    const key = platform === 'IG' ? 'ig' : 'fb';
+    byHour[hour][key+'_c']++; byHour[hour][key+'_e'] += eng;
+    byWk[wk][key+'_c']++; byWk[wk][key+'_e'] += eng;
+    byMonth[month][key+'_c']++; byMonth[month][key+'_e'] += eng;
+  });
+  
+  // 洞察 1：IG vs FB 戰場差異
+  const igAvg = stats.ig.count ? stats.ig.eng / stats.ig.count : 0;
+  const fbAvg = stats.fb.count ? stats.fb.eng / stats.fb.count : 0;
+  const ratio = fbAvg ? (igAvg / fbAvg).toFixed(1) : '∞';
+  out.insights.push({
+    type: 'critical', icon: '🎯',
+    title: 'IG 是主場、FB 是擺設',
+    detail: 'IG 單篇 ' + igAvg.toFixed(0) + ' 互動、FB 單篇 ' + fbAvg.toFixed(1) + ' 互動。IG 強 ' + ratio + ' 倍。',
+    action: '5 月起戰力 70% IG / 30% FB。FB 不再衝互動、改成「品牌信任面」。'
+  });
+  
+  // 洞察 2：IG 影片 vs 圖片
+  const igVidAvg = stats.ig.video ? stats.ig.video_eng / stats.ig.video : 0;
+  const igImgAvg = stats.ig.image ? stats.ig.image_eng / stats.ig.image : 0;
+  if (igVidAvg && igImgAvg) {
+    const vRatio = (igVidAvg / igImgAvg).toFixed(1);
+    out.insights.push({
+      type: 'opportunity', icon: '🎬',
+      title: 'IG Reels 比圖文強 ' + vRatio + ' 倍',
+      detail: 'Reels 單篇 ' + igVidAvg.toFixed(0) + ' 互動、圖文 ' + igImgAvg.toFixed(0) + ' 互動。',
+      action: '每週 5 條 Reels + 2 條圖文（不要再 50/50 分配）。'
+    });
+  }
+  
+  // 洞察 3：黃金時段（IG）
+  const igHours = Object.keys(byHour).map(function(h){
+    const d = byHour[h];
+    return { h: parseInt(h), avg: d.ig_c ? d.ig_e / d.ig_c : 0, cnt: d.ig_c };
+  }).filter(function(x){ return x.cnt >= 3; }).sort(function(a,b){ return b.avg - a.avg; });
+  if (igHours.length) {
+    const top = igHours[0];
+    out.insights.push({
+      type: 'opportunity', icon: '⏰',
+      title: 'IG 黃金時段：' + (top.h<10?'0':'') + top.h + ':00',
+      detail: '此時段平均 ' + top.avg.toFixed(0) + ' 互動（共 ' + top.cnt + ' 篇）。',
+      action: '所有 IG Reels 強制排在 ' + top.h + ':00 整點發、不要早不要晚。'
+    });
+  }
+  
+  // 洞察 4：黃金週幾（IG）
+  const wkOrder = ['一','二','三','四','五','六','日'];
+  const igWks = wkOrder.map(function(w){
+    const d = byWk[w] || { ig_c:0, ig_e:0 };
+    return { w: w, avg: d.ig_c ? d.ig_e / d.ig_c : 0, cnt: d.ig_c };
+  }).filter(function(x){ return x.cnt >= 3; }).sort(function(a,b){ return b.avg - a.avg; });
+  if (igWks.length >= 2) {
+    const top2 = igWks.slice(0,2).map(function(x){ return '週' + x.w + '(' + x.avg.toFixed(0) + ')'; }).join('、');
+    const bot = igWks[igWks.length-1];
+    out.insights.push({
+      type: 'opportunity', icon: '📅',
+      title: 'IG 最強週幾：' + top2,
+      detail: '最弱：週' + bot.w + '（單篇 ' + bot.avg.toFixed(0) + '）',
+      action: '把弱週幾的 IG 全停發、補到強週幾雙發。'
+    });
+  }
+  
+  // 洞察 5：FB 月度趨勢警示
+  const fbMonths = Object.keys(byMonth).sort();
+  if (fbMonths.length >= 3) {
+    const recent3 = fbMonths.slice(-3);
+    const trend = recent3.map(function(m){
+      const d = byMonth[m];
+      return { m: m, avg: d.fb_c ? d.fb_e / d.fb_c : 0 };
+    });
+    if (trend[0].avg > trend[2].avg * 1.5) {
+      out.insights.push({
+        type: 'warning', icon: '📉',
+        title: 'FB 連續 3 月下滑',
+        detail: trend.map(function(t){return t.m+'='+t.avg.toFixed(0);}).join(' → '),
+        action: 'FB 死亡時段（週二/三/五/六中午）全砍、只發週一/四/日 18-20h 共 3 篇/週。'
+      });
+    }
+  }
+  
+  // 洞察 6：Top 3 爆紅文公式
+  const top3 = allPosts.filter(function(p){ return p.platform === 'IG'; }).sort(function(a,b){ return b.eng - a.eng; }).slice(0, 3);
+  if (top3.length === 3) {
+    const sample = top3.map(function(p){
+      return '互動 ' + p.eng + ' | ' + p.ts.substring(0,10) + ' ' + (p.hour<10?'0':'') + p.hour + 'h | ' + (p.caption ? p.caption.substring(0,30) : '');
+    }).join(' / ');
+    out.insights.push({
+      type: 'opportunity', icon: '🔥',
+      title: 'IG Top 3 爆紅文都長這樣',
+      detail: sample,
+      action: '套這公式：3 秒問題式 hook + 生活感官主題 + 套科學實驗 + 18:00 整點發。'
+    });
+  }
+  
+  // 洞察 7：受眾畫像對應
+  const ash = ss.getSheetByName('Audience_Snapshot');
+  if (ash && ash.getLastRow() > 1) {
+    const adata = ash.getRange(2, 1, ash.getLastRow()-1, 6).getValues();
+    let female = 0, male = 0, age25_34 = 0, age35_44 = 0, age45_54 = 0;
+    adata.forEach(function(r){
+      const dim = String(r[3]||'');
+      const val = Number(r[4]) || 0;
+      const metric = String(r[2]||'');
+      if (metric.indexOf('性別') >= 0 || metric.indexOf('gender') >= 0) {
+        if (dim === 'F' || dim === 'female') female += val;
+        else if (dim === 'M' || dim === 'male') male += val;
+      }
+      if (metric.indexOf('年齡') >= 0 || metric.indexOf('age') >= 0) {
+        if (dim === '25-34') age25_34 += val;
+        else if (dim === '35-44') age35_44 += val;
+        else if (dim === '45-54') age45_54 += val;
+      }
+    });
+    const total = female + male;
+    if (total > 0) {
+      const pctF = (female/total*100).toFixed(0);
+      out.insights.push({
+        type: 'critical', icon: '👩',
+        title: '受眾女性佔 ' + pctF + '%、25-34 為主',
+        detail: '25-34 歲 ' + age25_34 + '、35-44 歲 ' + age35_44 + '、45-54 歲 ' + age45_54 + '。',
+        action: '文案對「25-34 媽媽」說話、不對「孩子」說話。重寫所有 CTA 用「精細檢測 50 分鐘」+「E 小編 1 對 1」。'
+      });
+    }
+  }
+  
+  return out;
+}
+
+/* ========== 未來排程（從 Posting_Queue 撈未來 14 天）========== */
+function getFutureSchedule() {
+  const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
+  if (!sh || sh.getLastRow() < 2) return [];
+  
+  const data = sh.getRange(2, 1, sh.getLastRow()-1, 26).getValues();
+  const now = new Date();
+  const future14 = new Date(now.getTime() + 14*24*60*60*1000);
+  const out = [];
+  
+  data.forEach(function(r, i){
+    const date = r[1]; const time = r[2];
+    if (!date) return;
+    
+    let dt;
+    if (date instanceof Date) {
+      dt = new Date(date);
+      if (time && typeof time === 'string') {
+        const parts = time.split(':');
+        dt.setHours(parseInt(parts[0])||0, parseInt(parts[1])||0);
+      }
+    } else if (typeof date === 'string' && date) {
+      const dStr = String(date) + ' ' + String(time||'00:00');
+      dt = new Date(dStr.replace(' ','T') + ':00+08:00');
+    }
+    if (!dt || isNaN(dt.getTime())) return;
+    if (dt < now || dt > future14) return;
+    
+    const status = String(r[15]||'');
+    if (status === '已發' || status === '失敗') return;
+    
+    out.push({
+      _row: i + 2,
+      queue_id: String(r[0]||''),
+      date: Utilities.formatDate(dt, 'Asia/Taipei', 'MM-dd'),
+      time: String(r[2]||'').substring(0,5) || (dt.getHours()<10?'0':'')+dt.getHours()+':00',
+      weekday: ['日','一','二','三','四','五','六'][dt.getDay()],
+      platform: String(r[3]||''),
+      ratio: String(r[4]||''),
+      theme: String(r[8]||''),
+      headline: String(r[9]||''),
+      status: status,
+      img_review: String(r[13]||''),
+      copy_review: String(r[14]||''),
+      thumb: String(r[7]||r[6]||'')
+    });
+  });
+  
+  out.sort(function(a,b){ return (a.date+a.time).localeCompare(b.date+b.time); });
+  return JSON.parse(JSON.stringify(out));
+}
+
+/* ========== 7/30/90 天 KPI 切換 ========== */
+function getKpisRange(days) {
+  days = parseInt(days) || 30;
+  const ss = SpreadsheetApp.openById(DASH_SS_ID);
+  const sh = ss.getSheetByName('Historical_Posts');
+  const out = { days: days, ig: { posts:0, eng:0, avg:0 }, fb: { posts:0, eng:0, avg:0 }, daily: [] };
+  if (!sh || sh.getLastRow() < 2) return out;
+  
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  
+  const data = sh.getRange(2, 1, sh.getLastRow()-1, 18).getValues();
+  const dailyMap = {};
+  
+  data.forEach(function(r){
+    const ts = tsToString_(r[3]);
+    let dt;
+    try {
+      dt = new Date(ts.replace(' ','T') + ':00+08:00');
+      if (isNaN(dt.getTime())) return;
+    } catch(e) { return; }
+    if (dt < cutoff) return;
+    
+    const platform = String(r[1]||'');
+    const eng = (Number(r[8])||0) + (Number(r[9])||0) + (Number(r[10])||0);
+    const dayKey = Utilities.formatDate(dt, 'Asia/Taipei', 'MM-dd');
+    
+    if (platform === 'IG') { out.ig.posts++; out.ig.eng += eng; }
+    else if (platform === 'FB') { out.fb.posts++; out.fb.eng += eng; }
+    
+    if (!dailyMap[dayKey]) dailyMap[dayKey] = { ig: 0, fb: 0 };
+    if (platform === 'IG') dailyMap[dayKey].ig += eng;
+    else if (platform === 'FB') dailyMap[dayKey].fb += eng;
+  });
+  
+  out.ig.avg = out.ig.posts ? Math.round(out.ig.eng / out.ig.posts) : 0;
+  out.fb.avg = out.fb.posts ? Math.round(out.fb.eng / out.fb.posts) : 0;
+  
+  out.daily = Object.keys(dailyMap).sort().map(function(k){
+    return { date: k, ig: dailyMap[k].ig, fb: dailyMap[k].fb };
+  });
+  
+  return out;
+}
