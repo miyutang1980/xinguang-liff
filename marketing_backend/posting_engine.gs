@@ -112,10 +112,20 @@ function publishRow_(sh, rowNum, r) {
   const body = r[10];
   const hashtags = r[11];
   const cta = r[12];
-  const publishType = r[23] || 'single';   // X 發布類型
-  const carouselIds = String(r[24] || '');  // Y 輪播 file_ids
+  const publishType = r[23] || 'single';   // X 發布類型：single / carousel / reel
+  const carouselIds = String(r[24] || '');  // Y 輪播 file_ids、或 Reel 的影片公開 URL（並存不衝突）
 
   const caption = `${headline}\n\n${body}\n\n${hashtags}\n\n${cta}`;
+
+  // ---- Reel 分支（短影音）----
+  if (publishType === 'reel') {
+    // Y 欄裝 .mp4 公開 URL（例如 GitHub Releases https 直連）
+    const videoUrl = String(carouselIds || driveUrl || '').trim();
+    if (!/^https?:\/\//i.test(videoUrl)) {
+      return { ok: false, error: 'Reel 需要公開的 .mp4 URL、請填在 Y 欄（影片連結）' };
+    }
+    return publishReel_(platform, videoUrl, caption);
+  }
 
   // 輪播分支
   if (publishType === 'carousel') {
@@ -284,11 +294,116 @@ function publishIGPost_(imageUrl, caption) {
   return { ok: true, post_id: pubData.id, post_url: `https://www.instagram.com/p/${pubData.id}/` };
 }
 
-/* -------- IG Reels (9x16 video) -------- */
+/* =========================================================
+ *  Reel 發布（IG Reels + FB Reels）
+ * ========================================================= */
+function publishReel_(platform, videoUrl, caption) {
+  const wantIG = platform.indexOf('IG') >= 0;
+  const wantFB = platform.indexOf('FB') >= 0;
+
+  let igRes = { ok: true }, fbRes = { ok: true };
+  if (wantIG) igRes = publishIGReel_(videoUrl, caption);
+  if (wantFB) fbRes = publishFBReel_(videoUrl, caption);
+
+  if (wantIG && wantFB) {
+    if (igRes.ok && fbRes.ok) {
+      return { ok: true, post_id: `IG:${igRes.post_id} FB:${fbRes.post_id}`, post_url: (igRes.post_url||'') + ' | ' + (fbRes.post_url||'') };
+    }
+    return { ok: false, error: `IG: ${igRes.error||'OK'} | FB: ${fbRes.error||'OK'}` };
+  }
+  if (wantIG) return igRes;
+  if (wantFB) return fbRes;
+  return { ok: false, error: 'Reel 未指定平台' };
+}
+
+/* -------- IG Reels (真的 Reels API) -------- */
 function publishIGReel_(videoUrl, caption) {
-  // 注意：IG Reels API 需要 video_url + media_type=REELS
-  // 我們的素材是 PNG，不是影片。降級為一般貼文 + 9x16 比例（IG 接受非方形）
-  return publishIGPost_(videoUrl, caption);
+  const igId = pe_igId_();
+  const token = pe_pageToken_();
+
+  // 1. 建容器：media_type=REELS
+  const createRes = UrlFetchApp.fetch(`https://graph.facebook.com/v19.0/${igId}/media`, {
+    method: 'post',
+    payload: {
+      media_type: 'REELS',
+      video_url: videoUrl,
+      caption: caption,
+      share_to_feed: 'true',
+      access_token: token
+    },
+    muteHttpExceptions: true
+  });
+  const createData = JSON.parse(createRes.getContentText());
+  if (!createData.id) return { ok: false, error: 'IG Reel 建容器失敗：' + createRes.getContentText() };
+  const creationId = createData.id;
+
+  // 2. 輪詢狀態（影片處理需時間）、最多等 90 秒
+  let status = 'IN_PROGRESS', tries = 0;
+  while (status === 'IN_PROGRESS' && tries < 30) {
+    Utilities.sleep(3000);
+    const sRes = UrlFetchApp.fetch(`https://graph.facebook.com/v19.0/${creationId}?fields=status_code&access_token=${token}`, { muteHttpExceptions: true });
+    const sData = JSON.parse(sRes.getContentText());
+    status = sData.status_code || 'ERROR';
+    tries++;
+  }
+  if (status !== 'FINISHED') {
+    return { ok: false, error: 'IG Reel 影片處理未完成（狀態：' + status + '）' };
+  }
+
+  // 3. 發布
+  const pubRes = UrlFetchApp.fetch(`https://graph.facebook.com/v19.0/${igId}/media_publish`, {
+    method: 'post',
+    payload: { creation_id: creationId, access_token: token },
+    muteHttpExceptions: true
+  });
+  const pubData = JSON.parse(pubRes.getContentText());
+  if (!pubData.id) return { ok: false, error: 'IG Reel publish fail: ' + pubRes.getContentText() };
+  return { ok: true, post_id: pubData.id, post_url: `https://www.instagram.com/reel/${pubData.id}/` };
+}
+
+/* -------- FB Reels -------- */
+// FB Reels 需 resumable upload 三步：start → upload → finish
+function publishFBReel_(videoUrl, caption) {
+  const pageId = pe_pageId_();
+  const token = pe_pageToken_();
+
+  // 1. 「start」取得 video_id + upload_url
+  const startRes = UrlFetchApp.fetch(`https://graph.facebook.com/v19.0/${pageId}/video_reels`, {
+    method: 'post',
+    payload: { upload_phase: 'start', access_token: token },
+    muteHttpExceptions: true
+  });
+  const startData = JSON.parse(startRes.getContentText());
+  if (!startData.video_id) return { ok: false, error: 'FB Reel start fail: ' + startRes.getContentText() };
+  const videoId = startData.video_id;
+
+  // 2. 「upload」讓 FB 從我們的 URL 抓影片（hosted file_url 模式）
+  const uploadRes = UrlFetchApp.fetch(`https://rupload.facebook.com/video-upload/v19.0/${videoId}`, {
+    method: 'post',
+    headers: {
+      Authorization: 'OAuth ' + token,
+      file_url: videoUrl
+    },
+    muteHttpExceptions: true
+  });
+  const uploadData = JSON.parse(uploadRes.getContentText());
+  if (uploadData.success !== true && !uploadData.success) {
+    return { ok: false, error: 'FB Reel upload fail: ' + uploadRes.getContentText() };
+  }
+
+  // 3. 「finish」發布
+  const finishUrl = `https://graph.facebook.com/v19.0/${pageId}/video_reels?` +
+    'access_token=' + encodeURIComponent(token) +
+    '&video_id=' + encodeURIComponent(videoId) +
+    '&upload_phase=finish' +
+    '&video_state=PUBLISHED' +
+    '&description=' + encodeURIComponent(caption);
+  const finishRes = UrlFetchApp.fetch(finishUrl, { method: 'post', muteHttpExceptions: true });
+  const finishData = JSON.parse(finishRes.getContentText());
+  if (finishData.success !== true && !finishData.success) {
+    return { ok: false, error: 'FB Reel finish fail: ' + finishRes.getContentText() };
+  }
+  return { ok: true, post_id: videoId, post_url: `https://www.facebook.com/reel/${videoId}` };
 }
 
 /* -------- FB 粉專照片 -------- */
@@ -444,4 +559,66 @@ function fetchAndAppendFB_(iSh, today, queueId, postId) {
       0, '', '', ''
     ]);
   } catch (e) { Logger.log('FB insight fail: ' + e); }
+}
+
+/* =========================================================
+ *  appendReelToQueue：後台「新增 Reel 預排」表單入口
+ *  payload = {
+ *    videoUrl: '公開 .mp4 URL（必須）',
+ *    platform: 'IG+FB' | 'IG' | 'FB',
+ *    headline: '標題',
+ *    body: '文案',
+ *    hashtags: '#tag1 #tag2',
+ *    cta: 'CTA 文字',
+ *    scheduleAt: 'yyyy-MM-dd HH:mm'（台灣時區）
+ *  }
+ * ========================================================= */
+function appendReelToQueue(payload) {
+  try {
+    const p = payload || {};
+    const videoUrl = String(p.videoUrl || '').trim();
+    if (!/^https?:\/\/.+\.mp4(\?.*)?$/i.test(videoUrl)) {
+      return { ok: false, error: '影片 URL 必須是公開的 .mp4 直連（例：GitHub Releases）' };
+    }
+    const plat = String(p.platform || 'IG+FB').trim();
+    const headline = String(p.headline || '').trim();
+    const body = String(p.body || '').trim();
+    const hashtags = String(p.hashtags || '').trim();
+    const cta = String(p.cta || '').trim();
+    const sAt = String(p.scheduleAt || '').trim();
+    if (!sAt || !/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(sAt)) {
+      return { ok: false, error: '排程時間格式錯（需 yyyy-MM-dd HH:mm）' };
+    }
+    const dPart = sAt.substring(0, 10);
+    const tPart = sAt.substring(11, 16);
+
+    const ss = SpreadsheetApp.openById(PE_SS_ID);
+    const sh = ss.getSheetByName(PE_QUEUE_NAME);
+    if (!sh) return { ok: false, error: '找不到 Posting_Queue 工作表' };
+
+    // 確保 X/Y 欄頭存在
+    const lastCol = Math.max(26, sh.getLastColumn());
+    const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    if (headers[23] !== '發布類型') sh.getRange(1, 24).setValue('發布類型');
+    if (headers[24] !== '輪播圖file_ids') sh.getRange(1, 25).setValue('輪播圖file_ids');
+
+    // 產生列號 ID
+    const last = sh.getLastRow();
+    const newId = 'R' + Utilities.formatDate(new Date(), PE_TZ, 'yyyyMMddHHmmss');
+
+    // 寫入一列：A=ID, B=日期, C=時間, D=平台, E=主題, F=形式, G=主圖URL(借位放影片URL方便預覽), H=縮圖, I=備註,
+    //        J=headline, K=body, L=hashtags, M=cta, N=圖片審(自動過,Reel 沒圖), O=文案審(待審), P=排程狀態(草稿), Q=發文時間, R=post_id, S=post_url, T=錯誤,
+    //        U/V/W=保留, X=發布類型(reel), Y=影片URL
+    const row = [
+      newId, dPart, tPart, plat, '短影音 Reel', 'Reel', videoUrl, '', '',
+      headline, body, hashtags, cta,
+      '過', '待審', '草稿', '', '', '', '',
+      '', '', '',
+      'reel', videoUrl, ''
+    ];
+    sh.appendRow(row);
+    return { ok: true, id: newId, row: sh.getLastRow() };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 }

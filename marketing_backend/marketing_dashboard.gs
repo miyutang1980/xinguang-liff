@@ -204,8 +204,8 @@ function rejectRowApi_(body) {
 
 // 設定該列發布類型 (single / carousel)
 function setPublishType(rowNum, type) {
-  if (type !== 'single' && type !== 'carousel') {
-    return { ok: false, error: '類型必須是 single 或 carousel' };
+  if (type !== 'single' && type !== 'carousel' && type !== 'reel') {
+    return { ok: false, error: '類型必須是 single、carousel 或 reel' };
   }
   const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
   // 確保 X 欄(24)欄頭存在

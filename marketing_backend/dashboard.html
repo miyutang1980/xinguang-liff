@@ -189,12 +189,59 @@
 
   <!-- ============= 排程看板 ============= -->
   <section id="tab-schedule">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
       <h2 style="margin:0">未來 14 天排程（FB + IG 全部）</h2>
-      <button class="btn ghost" onclick="loadFutureSchedule()">重新整理</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn primary" onclick="openReelModal()">🎬 新增 Reel 預排</button>
+        <button class="btn ghost" onclick="loadFutureSchedule()">重新整理</button>
+      </div>
     </div>
     <div id="future-schedule-list" class="loading">載入中...</div>
   </section>
+
+  <!-- ============= 新增 Reel 表單（Modal） ============= -->
+  <div id="reelModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:12px;padding:24px;max-width:520px;width:92%;max-height:90vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="margin:0">🎬 新增 Reel 預排</h3>
+        <button onclick="closeReelModal()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;line-height:1">×</button>
+      </div>
+      <div style="font-size:0.8rem;color:#92400E;background:#FEF3C7;padding:10px;border-radius:6px;margin-bottom:14px">
+        影片請上傳到 GitHub Releases（xinguang-assets）後、複製「右鍵 → 複製連結位址」的 .mp4 直連貼下面。Drive 連結不能用。
+      </div>
+      <form onsubmit="submitReel(event)">
+        <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">影片 .mp4 公開 URL <span style="color:#dc2626">*</span></label>
+        <input id="reelVideoUrl" type="url" required placeholder="https://github.com/miyutang1980/xinguang-assets/releases/download/.../xxx.mp4" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px" />
+
+        <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">發布平台 <span style="color:#dc2626">*</span></label>
+        <select id="reelPlatform" required style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px">
+          <option value="IG+FB Reels">IG + FB Reels（同步發）</option>
+          <option value="IG Reels">只發 IG Reels</option>
+          <option value="FB Reels">只發 FB Reels</option>
+        </select>
+
+        <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">標題</label>
+        <input id="reelHeadline" type="text" placeholder="例：太平新光分校 外側測試剖析" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px" />
+
+        <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">文案 <span style="color:#dc2626">*</span></label>
+        <textarea id="reelBody" required rows="4" placeholder="科學為主、英文為媒。精細檢測 50 分鐘、E 小編 1 對 1…" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px;font-family:inherit"></textarea>
+
+        <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">Hashtags</label>
+        <input id="reelHashtags" type="text" value="#太平新光分校 #弋果美語 #太平美語 #英檢" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px" />
+
+        <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">CTA</label>
+        <input id="reelCta" type="text" value="📲 LINE @143qbory、主動人員幫你預約" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px" />
+
+        <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">排程時間 <span style="color:#dc2626">*</span></label>
+        <input id="reelScheduleAt" type="datetime-local" required style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:16px" />
+
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn ghost" onclick="closeReelModal()">取消</button>
+          <button type="submit" class="btn primary" id="reelSubmitBtn">加入排程</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- ============= 互動中心 ============= -->
   <section id="tab-interactions">
@@ -1600,6 +1647,57 @@ function escape_(s) {
 }
 
 loadAll();
+
+/* ============ 🎬 Reel 預排表單 ============ */
+function openReelModal(){
+  // 預設排程時間：明天 18:00
+  var t = new Date();
+  t.setDate(t.getDate() + 1);
+  t.setHours(18, 0, 0, 0);
+  var iso = t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' +
+            String(t.getDate()).padStart(2,'0') + 'T' +
+            String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+  document.getElementById('reelScheduleAt').value = iso;
+  document.getElementById('reelModal').style.display = 'flex';
+}
+function closeReelModal(){
+  document.getElementById('reelModal').style.display = 'none';
+}
+function submitReel(ev){
+  ev.preventDefault();
+  var btn = document.getElementById('reelSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = '寫入中…';
+
+  var payload = {
+    videoUrl:   document.getElementById('reelVideoUrl').value.trim(),
+    platform:   document.getElementById('reelPlatform').value,
+    headline:   document.getElementById('reelHeadline').value.trim(),
+    body:       document.getElementById('reelBody').value.trim(),
+    hashtags:   document.getElementById('reelHashtags').value.trim(),
+    cta:        document.getElementById('reelCta').value.trim(),
+    scheduleAt: document.getElementById('reelScheduleAt').value
+  };
+
+  google.script.run
+    .withSuccessHandler(function(res){
+      btn.disabled = false;
+      btn.textContent = '加入排程';
+      if (res && res.ok){
+        alert('✅ Reel 已加入排程！\n時間：' + payload.scheduleAt + '\n列號：' + res.row);
+        closeReelModal();
+        loadFutureSchedule();
+      } else {
+        alert('❌ 寫入失敗：' + (res && res.error || '未知錯誤'));
+      }
+    })
+    .withFailureHandler(function(err){
+      btn.disabled = false;
+      btn.textContent = '加入排程';
+      alert('❌ 後端錯誤：' + err.message);
+    })
+    .appendReelToQueue(payload);
+}
 </script>
 </body>
 </html>
