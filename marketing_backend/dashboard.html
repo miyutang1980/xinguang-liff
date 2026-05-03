@@ -197,6 +197,22 @@
       <div class="kpi"><div class="label">7 天 Audience 發文數</div><div class="num" id="ins-posts">—</div></div>
     </div>
     <p style="color:var(--gray);font-size:13px;margin-top:8px">點上方 7/30/90 切換 IG/FB 範圍 KPI；底排為 Audience_Snapshot 7 天快照。</p>
+
+    <!-- ====== 深度拆解 6 區塊 ====== -->
+    <div style="margin-top:24px;padding-top:16px;border-top:3px double #d4a574">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h2 style="margin:0;color:var(--navy);font-size:18px">🔍 完整數據拆解分析</h2>
+        <button class="btn ghost" onclick="loadDeepAnalytics()" style="font-size:12px">重新分析</button>
+      </div>
+      <div id="deep-warnings"></div>
+      <div id="deep-block1" style="margin-bottom:16px"></div>
+      <div id="deep-block2" style="margin-bottom:16px"></div>
+      <div id="deep-block3" style="margin-bottom:16px"></div>
+      <div id="deep-block4" style="margin-bottom:16px"></div>
+      <div id="deep-block5" style="margin-bottom:16px"></div>
+      <div id="deep-block6" style="margin-bottom:16px"></div>
+      <div id="deep-meta" style="color:#888;font-size:12px;text-align:right"></div>
+    </div>
   </section>
 
   <!-- ============= 歷史分析 ============= -->
@@ -364,6 +380,7 @@ function loadAll() {
   loadFutureSchedule();
   setKpiRange(currentRange);
   loadHotLeads();
+  loadDeepAnalytics();
 }
 
 /* ========== Phase 3: 高潛家長 ========== */
@@ -561,6 +578,179 @@ function renderKpiRange(d) {
   }).join('');
   ch.innerHTML = '<div style="white-space:nowrap;overflow-x:auto;padding-bottom:30px">' + bars + '</div>' +
     '<div style="margin-top:8px;font-size:12px;color:#666"><span style="display:inline-block;width:10px;height:10px;background:#e1306c;border-radius:2px;margin-right:4px"></span>IG　<span style="display:inline-block;width:10px;height:10px;background:#1877f2;border-radius:2px;margin:0 4px 0 12px"></span>FB</div>';
+}
+
+/* ========== Phase 4: 完整 6 區塊拆解 ========== */
+function loadDeepAnalytics() {
+  ['deep-block1','deep-block2','deep-block3','deep-block4','deep-block5','deep-block6'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.innerHTML = '<div class="loading" style="padding:14px">分析中...</div>';
+  });
+  google.script.run
+    .withSuccessHandler(function(d){ renderDeepAnalytics(d || {}); })
+    .withFailureHandler(function(err){ showError('getDeepAnalytics', err); })
+    .getDeepAnalytics();
+}
+
+function renderDeepAnalytics(d) {
+  // 警告
+  var w = document.getElementById('deep-warnings');
+  if (w) {
+    w.innerHTML = '';
+    if (d.warnings && d.warnings.length) {
+      w.innerHTML = d.warnings.map(function(t){ return '<div style="background:#fff7e6;border-left:4px solid #ffa94d;padding:10px;border-radius:6px;margin-bottom:10px;font-size:13px;color:#874700">⚠️ ' + escapeText(t) + '</div>'; }).join('');
+    }
+  }
+  renderBlock1Platform(d.block1_platform);
+  renderBlock2Type(d.block2_type);
+  renderBlock3Heatmap(d.block3_heatmap);
+  renderBlock4Topics(d.block4_topics);
+  renderBlock5Growth(d.block5_growth);
+  renderBlock6Frequency(d.block6_frequency);
+  var meta = document.getElementById('deep-meta');
+  if (meta && d.generated_at) meta.textContent = '分析生成時間：' + d.generated_at;
+}
+
+function deepCardWrap_(title, icon, bodyHtml, actionHtml) {
+  return '<div style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px">' +
+    '<h3 style="margin:0 0 12px 0;color:var(--navy);font-size:15px">' + icon + ' ' + escapeText(title) + '</h3>' +
+    bodyHtml +
+    (actionHtml ? '<div style="margin-top:12px;background:#fef9f3;border-left:4px solid #d4a574;border-radius:6px;padding:10px;font-size:13px;color:#222"><b>⏩ 戰術建議：</b>' + actionHtml + '</div>' : '') +
+  '</div>';
+}
+
+function renderBlock1Platform(b) {
+  var el = document.getElementById('deep-block1'); if (!el || !b) return;
+  var body = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">' +
+    '<div style="background:#fce4ec;border-left:4px solid #e1306c;border-radius:8px;padding:12px">' +
+      '<div style="font-size:12px;color:#999">IG</div>' +
+      '<div style="font-size:24px;font-weight:700;color:#e1306c">' + b.ig_avg + '</div>' +
+      '<div style="font-size:12px;color:#666">單篇平均互動｜' + b.ig_total + ' 篇總計｜30 天 ' + b.ig_30d_posts + ' 篇</div>' +
+    '</div>' +
+    '<div style="background:#e7f3ff;border-left:4px solid #1877f2;border-radius:8px;padding:12px">' +
+      '<div style="font-size:12px;color:#999">FB</div>' +
+      '<div style="font-size:24px;font-weight:700;color:#1877f2">' + b.fb_avg + '</div>' +
+      '<div style="font-size:12px;color:#666">單篇平均互動｜' + b.fb_total + ' 篇總計｜30 天 ' + b.fb_30d_posts + ' 篇</div>' +
+    '</div>' +
+  '</div>' +
+  '<div style="font-size:13px;color:#444;margin-bottom:6px"><b>互動倍數：</b>IG 強 FB <span style="color:#c92a2a;font-size:18px;font-weight:700">' + escapeText(b.ratio) + '</span> 倍</div>' +
+  '<div style="font-size:13px;color:#555">💡 ' + escapeText(b.interpretation) + '</div>';
+  el.innerHTML = deepCardWrap_('平台戰力對比', '🎯', body, escapeText(b.action));
+}
+
+function renderBlock2Type(b) {
+  var el = document.getElementById('deep-block2'); if (!el || !b) return;
+  var items = b.items || [];
+  if (!items.length) { el.innerHTML = ''; return; }
+  var maxAvg = Math.max.apply(null, items.map(function(x){return x.avg||1;}));
+  var rows = items.map(function(x){
+    var pct = Math.round((x.avg / maxAvg) * 100);
+    return '<div style="margin-bottom:8px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span><b>' + escapeText(x.type) + '</b><span style="color:#888">　' + x.count + ' 篇</span></span><span style="color:#444">平均 <b>' + x.avg + '</b>　最高 ' + x.top + '</span></div>' +
+      '<div style="background:#f0f0f0;border-radius:4px;height:8px;overflow:hidden"><div style="background:linear-gradient(90deg,#e1306c,#d4a574);height:100%;width:' + pct + '%"></div></div>' +
+    '</div>';
+  }).join('');
+  el.innerHTML = deepCardWrap_('IG 內容類型拆解', '🎬', rows, escapeText(b.action));
+}
+
+function renderBlock3Heatmap(b) {
+  var el = document.getElementById('deep-block3'); if (!el || !b) return;
+  var grid = b.grid || [];
+  // 用二維陣列儲存 [wd][hour]
+  var matrix = {};
+  var maxAvg = 0;
+  grid.forEach(function(g){
+    if (!matrix[g.wd]) matrix[g.wd] = {};
+    matrix[g.wd][g.hour] = g.avg;
+    if (g.avg > maxAvg) maxAvg = g.avg;
+  });
+  var wkName = ['一','二','三','四','五','六','日'];
+  // Header (時間 0-23)
+  var html = '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:11px"><tr><th style="padding:2px 6px"></th>';
+  for (var h = 0; h < 24; h++) html += '<th style="padding:2px 4px;color:#888;font-weight:400;width:18px">' + h + '</th>';
+  html += '</tr>';
+  // 週一到週日
+  for (var i = 1; i <= 7; i++) {
+    var realWd = (i === 7) ? 0 : i; // 週日對應 0
+    html += '<tr><th style="padding:2px 6px;text-align:right;color:#666;font-weight:600">週' + wkName[i-1] + '</th>';
+    for (var h = 0; h < 24; h++) {
+      var v = (matrix[realWd] && matrix[realWd][h]) || 0;
+      var intensity = maxAvg ? (v / maxAvg) : 0;
+      var bg = '#f5f5f5';
+      if (v > 0) {
+        var alpha = 0.2 + intensity * 0.8;
+        bg = 'rgba(225,48,108,' + alpha.toFixed(2) + ')';
+      }
+      var color = intensity > 0.6 ? '#fff' : '#333';
+      html += '<td title="週' + wkName[i-1] + ' ' + h + ':00 平均 ' + v + '" style="background:' + bg + ';color:' + color + ';width:18px;height:18px;text-align:center;font-size:9px">' + (v || '') + '</td>';
+    }
+    html += '</tr>';
+  }
+  html += '</table></div>';
+  // Top 5
+  if (b.top5 && b.top5.length) {
+    html += '<div style="margin-top:10px;background:#fef9f3;border-radius:6px;padding:10px">' +
+      '<div style="font-size:12px;color:#888;margin-bottom:4px">黃金時段 Top 5</div>' +
+      b.top5.map(function(t,i){ return '<span style="display:inline-block;background:#fff;border:1px solid #d4a574;border-radius:14px;padding:3px 10px;margin:2px;font-size:12px"><b>#' + (i+1) + '</b> ' + escapeText(t.label) + ' <span style="color:#c92a2a">' + t.avg + '</span></span>'; }).join('') +
+    '</div>';
+  }
+  el.innerHTML = deepCardWrap_('黃金時段熱力圖（IG、週 × 小時）', '🔥', html, escapeText(b.action));
+}
+
+function renderBlock4Topics(b) {
+  var el = document.getElementById('deep-block4'); if (!el || !b) return;
+  var items = b.items || [];
+  if (!items.length) { el.innerHTML = ''; return; }
+  var maxAvg = Math.max.apply(null, items.map(function(x){return x.avg||1;}));
+  var rows = items.map(function(x, i){
+    var pct = Math.round((x.avg / maxAvg) * 100);
+    var medal = i === 0 ? '🥇' : (i === 1 ? '🥈' : (i === 2 ? '🥉' : ''));
+    return '<div style="margin-bottom:8px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span>' + medal + ' <b>' + escapeText(x.topic) + '</b><span style="color:#888">　' + x.count + ' 篇</span></span><span style="color:#444">平均 <b>' + x.avg + '</b></span></div>' +
+      '<div style="background:#f0f0f0;border-radius:4px;height:8px;overflow:hidden"><div style="background:linear-gradient(90deg,#1f3864,#d4a574);height:100%;width:' + pct + '%"></div></div>' +
+    '</div>';
+  }).join('');
+  el.innerHTML = deepCardWrap_('主題效能排名（IG謚文內容分類）', '📝', rows, escapeText(b.action));
+}
+
+function renderBlock5Growth(b) {
+  var el = document.getElementById('deep-block5'); if (!el || !b) return;
+  var weeks = b.weeks || [];
+  if (!weeks.length) { el.innerHTML = ''; return; }
+  var maxAvg = Math.max.apply(null, weeks.map(function(x){return x.avg||1;}));
+  var bars = weeks.map(function(x){
+    var h = Math.round((x.avg / maxAvg) * 100);
+    return '<div style="display:inline-block;text-align:center;width:' + (100/(weeks.length+1)).toFixed(2) + '%;vertical-align:bottom">' +
+      '<div style="height:120px;display:flex;align-items:flex-end;justify-content:center"><div style="width:60%;background:linear-gradient(180deg,#d4a574,#1f3864);height:' + h + '%;border-radius:4px 4px 0 0" title="平均 ' + x.avg + '、' + x.posts + ' 篇"></div></div>' +
+      '<div style="font-size:10px;color:#666;margin-top:4px">' + escapeText(x.week.substring(5)) + '</div>' +
+      '<div style="font-size:10px;color:#999">' + x.avg + '</div>' +
+    '</div>';
+  }).join('');
+  // 預測柱
+  var predictBar = '<div style="display:inline-block;text-align:center;width:' + (100/(weeks.length+1)).toFixed(2) + '%;vertical-align:bottom">' +
+    '<div style="height:120px;display:flex;align-items:flex-end;justify-content:center"><div style="width:60%;background:repeating-linear-gradient(45deg,#d4a574,#d4a574 4px,#fff 4px,#fff 8px);border:2px dashed #c92a2a;height:' + Math.round((b.predict_next/maxAvg)*100) + '%;border-radius:4px 4px 0 0"></div></div>' +
+    '<div style="font-size:10px;color:#c92a2a;margin-top:4px;font-weight:700">下週預</div>' +
+    '<div style="font-size:10px;color:#c92a2a;font-weight:700">' + b.predict_next + '</div>' +
+  '</div>';
+  var trendColor = b.trend === '上升' ? '#2b8a3e' : (b.trend === '下滑' ? '#c92a2a' : '#888');
+  var trendIcon = b.trend === '上升' ? '↗' : (b.trend === '下滑' ? '↘' : '→');
+  var body = '<div style="font-size:13px;margin-bottom:10px"><b>趨勢：</b><span style="color:' + trendColor + ';font-weight:700">' + trendIcon + ' ' + escapeText(b.trend) + '</span>　　<b>預測下週單篇平均：</b><span style="color:#c92a2a;font-weight:700">' + b.predict_next + '</span></div>' +
+    '<div style="white-space:nowrap;overflow-x:auto">' + bars + predictBar + '</div>';
+  el.innerHTML = deepCardWrap_('成長曲線 × 下週預測（近 8 週 IG）', '📈', body, escapeText(b.action));
+}
+
+function renderBlock6Frequency(b) {
+  var el = document.getElementById('deep-block6'); if (!el || !b) return;
+  var items = b.items || [];
+  if (!items.length) { el.innerHTML = ''; return; }
+  var maxAvg = Math.max.apply(null, items.map(function(x){return x.avg||1;}));
+  var rows = items.map(function(x){
+    var pct = Math.round((x.avg / maxAvg) * 100);
+    return '<div style="margin-bottom:8px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:3px"><span><b>' + escapeText(x.bucket) + '</b><span style="color:#888">　出現 ' + x.weeks + ' 週</span></span><span style="color:#444">平均互動 <b>' + x.avg + '</b></span></div>' +
+      '<div style="background:#f0f0f0;border-radius:4px;height:8px;overflow:hidden"><div style="background:linear-gradient(90deg,#2b8a3e,#d4a574);height:100%;width:' + pct + '%"></div></div>' +
+    '</div>';
+  }).join('');
+  el.innerHTML = deepCardWrap_('發文頻率 vs 互動關係（近 12 週）', '⏱', rows, escapeText(b.action));
 }
 
 /* ========== HTML 轉義工具 ========== */

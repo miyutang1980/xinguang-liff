@@ -787,3 +787,215 @@ function refreshHotLeadsFromDashboard() {
   }
   return { ok: false, msg: '請先部署 auto_reply_engine_v2.gs' };
 }
+
+/* ========== Phase 4: 完整 6 區塊拆解 ========== */
+function getDeepAnalytics() {
+  const ss = SpreadsheetApp.openById(DASH_SS_ID);
+  const sh = ss.getSheetByName('Historical_Posts');
+  const out = {
+    generated_at: Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy-MM-dd HH:mm'),
+    block1_platform: null,
+    block2_type: null,
+    block3_heatmap: null,
+    block4_topics: null,
+    block5_growth: null,
+    block6_frequency: null,
+    warnings: []
+  };
+  if (!sh || sh.getLastRow() < 2) {
+    out.warnings.push('Historical_Posts 無資料、請先跑 backfillIGHistorical / backfillFBHistorical');
+    return out;
+  }
+
+  const data = sh.getRange(2, 1, sh.getLastRow()-1, 18).getValues();
+  const posts = [];
+  data.forEach(function(r){
+    const ts = tsToString_(r[3]);
+    let dt;
+    try {
+      dt = new Date(ts.replace(' ','T') + ':00+08:00');
+      if (isNaN(dt.getTime())) return;
+    } catch(e) { return; }
+    const likes = Number(r[8]) || 0;
+    const comments = Number(r[9]) || 0;
+    const shares = Number(r[10]) || 0;
+    posts.push({
+      platform: String(r[1]||''),
+      type: String(r[4]||''),
+      dt: dt,
+      hour: dt.getHours(),
+      wd: dt.getDay(),
+      ym: Utilities.formatDate(dt, 'Asia/Taipei', 'yyyy-MM'),
+      yw: hist_yearWeek_(dt),
+      likes: likes, comments: comments, shares: shares,
+      eng: likes + comments + shares,
+      reach: Number(r[12]) || 0,
+      caption: String(r[17]||'')
+    });
+  });
+
+  if (!posts.length) { out.warnings.push('資料解析後為空'); return out; }
+
+  // 偵測 FB 互動全 0 的問題
+  const fb = posts.filter(function(p){ return p.platform === 'FB'; });
+  const fbZero = fb.length && fb.every(function(p){ return p.eng === 0; });
+  if (fbZero) out.warnings.push('FB ' + fb.length + ' 篇互動全 0、請到 Apps Script 跑 fbBackfillInteractions 補抓');
+
+  /* ===== Block 1: 平台戰力對比 ===== */
+  const ig = posts.filter(function(p){ return p.platform === 'IG'; });
+  const igAvg = ig.length ? ig.reduce(function(s,p){return s+p.eng;}, 0) / ig.length : 0;
+  const fbAvg = fb.length ? fb.reduce(function(s,p){return s+p.eng;}, 0) / fb.length : 0;
+  const ratio = fbAvg ? (igAvg / fbAvg) : (igAvg ? 999 : 0);
+  // 近 30 天
+  const cutoff30 = new Date(); cutoff30.setDate(cutoff30.getDate() - 30);
+  const ig30 = ig.filter(function(p){return p.dt >= cutoff30;});
+  const fb30 = fb.filter(function(p){return p.dt >= cutoff30;});
+  out.block1_platform = {
+    ig_total: ig.length, fb_total: fb.length,
+    ig_avg: Math.round(igAvg), fb_avg: Math.round(fbAvg),
+    ig_eng_total: ig.reduce(function(s,p){return s+p.eng;}, 0),
+    fb_eng_total: fb.reduce(function(s,p){return s+p.eng;}, 0),
+    ratio: ratio >= 999 ? '∞' : ratio.toFixed(1),
+    ig_30d_posts: ig30.length, fb_30d_posts: fb30.length,
+    interpretation: ratio >= 5
+      ? 'IG 是絕對主場、戰力強 ' + (ratio >= 999 ? '無限' : ratio.toFixed(1)) + ' 倍。FB 平均互動 ' + Math.round(fbAvg) + ' 接近 0、再投時間進去 CP 值極差。'
+      : (ratio >= 2 ? 'IG 略強、但 FB 仍有戰力。' : 'FB 表現意外不錯、可保留資源。'),
+    action: ratio >= 5
+      ? '5 月戰力 70% IG / 30% FB。FB 不衝互動、改用「品牌信任面」（家長分享、活動紀錄）'
+      : '5 月戰力 60% IG / 40% FB、保留 FB 經營'
+  };
+
+  /* ===== Block 2: 內容類型拆解（IG）===== */
+  const igTypes = {};
+  ig.forEach(function(p){
+    const t = (p.type === 'VIDEO' || p.type === 'REELS') ? 'Reels影片' : (p.type === 'CAROUSEL_ALBUM' ? '輪播' : '圖文');
+    if (!igTypes[t]) igTypes[t] = { count: 0, eng: 0, top_eng: 0 };
+    igTypes[t].count++; igTypes[t].eng += p.eng;
+    if (p.eng > igTypes[t].top_eng) igTypes[t].top_eng = p.eng;
+  });
+  const typesArr = Object.keys(igTypes).map(function(t){
+    return { type: t, count: igTypes[t].count, avg: Math.round(igTypes[t].eng / igTypes[t].count), top: igTypes[t].top_eng };
+  }).sort(function(a,b){ return b.avg - a.avg; });
+
+  let typeAction = '無資料';
+  if (typesArr.length >= 2) {
+    const win = typesArr[0]; const loss = typesArr[typesArr.length-1];
+    const winRatio = loss.avg ? (win.avg / loss.avg).toFixed(1) : '∞';
+    typeAction = win.type + ' 比 ' + loss.type + ' 強 ' + winRatio + ' 倍。每週 5 條 ' + win.type + ' + 2 條 ' + loss.type + '、不要 50/50 平均分。';
+  }
+  out.block2_type = { items: typesArr, action: typeAction };
+
+  /* ===== Block 3: 黃金時段熱力圖（IG）===== */
+  // 24 小時 × 7 天 = 168 格
+  const heat = []; // { wd, hour, count, avg }
+  const heatMap = {};
+  ig.forEach(function(p){
+    const k = p.wd + '_' + p.hour;
+    if (!heatMap[k]) heatMap[k] = { wd: p.wd, hour: p.hour, count: 0, eng: 0 };
+    heatMap[k].count++; heatMap[k].eng += p.eng;
+  });
+  Object.keys(heatMap).forEach(function(k){
+    const c = heatMap[k];
+    heat.push({ wd: c.wd, hour: c.hour, count: c.count, avg: c.count ? Math.round(c.eng/c.count) : 0 });
+  });
+  // 取 Top 5
+  const top5 = heat.filter(function(x){ return x.count >= 2; }).sort(function(a,b){ return b.avg - a.avg; }).slice(0, 5);
+  const wkName = ['日','一','二','三','四','五','六'];
+  out.block3_heatmap = {
+    grid: heat,
+    top5: top5.map(function(x){ return { label: '週' + wkName[x.wd] + ' ' + (x.hour<10?'0':'') + x.hour + ':00', avg: x.avg, count: x.count }; }),
+    action: top5.length ? '黃金時段 ' + top5.slice(0,2).map(function(x){return '週'+wkName[x.wd]+' '+(x.hour<10?'0':'')+x.hour+'h';}).join('、') + ' 必發 Reels' : '資料不足'
+  };
+
+  /* ===== Block 4: 主題效能排名 ===== */
+  const topicKeywords = {
+    '科學/實驗': ['科學','實驗','化學','物理','生物','觀察','顯微','光學','磁','電'],
+    '英文/單字': ['英文','english','單字','發音','phonics','閱讀','文法'],
+    '課程/開課': ['課程','開課','梯次','報名','上課','班級'],
+    '活動/體驗': ['活動','體驗','講座','派對','派發','親子','闖關','遊戲'],
+    '師資/環境': ['老師','師資','教室','分校','環境','設施'],
+    '家長/見證': ['家長','分享','回饋','心得','見證','故事','成長']
+  };
+  const topicStats = {};
+  Object.keys(topicKeywords).forEach(function(t){ topicStats[t] = { count: 0, eng: 0 }; });
+  topicStats['其他'] = { count: 0, eng: 0 };
+  ig.forEach(function(p){
+    const cap = (p.caption || '').toLowerCase();
+    let matched = false;
+    for (const t in topicKeywords) {
+      if (topicKeywords[t].some(function(kw){ return cap.indexOf(kw) >= 0; })) {
+        topicStats[t].count++; topicStats[t].eng += p.eng; matched = true; break;
+      }
+    }
+    if (!matched) { topicStats['其他'].count++; topicStats['其他'].eng += p.eng; }
+  });
+  const topicsArr = Object.keys(topicStats).map(function(t){
+    const s = topicStats[t];
+    return { topic: t, count: s.count, avg: s.count ? Math.round(s.eng/s.count) : 0 };
+  }).filter(function(x){ return x.count > 0; }).sort(function(a,b){ return b.avg - a.avg; });
+  let topicAction = '無資料';
+  if (topicsArr.length >= 2) {
+    const w = topicsArr[0]; const l = topicsArr[topicsArr.length-1];
+    topicAction = '「' + w.topic + '」單篇平均 ' + w.avg + '、最強。「' + l.topic + '」最弱（' + l.avg + '）。多寫前 3 名、少碰最後 1 名。';
+  }
+  out.block4_topics = { items: topicsArr, action: topicAction };
+
+  /* ===== Block 5: 成長曲線（近 8 週）===== */
+  const wkBuckets = {};
+  ig.forEach(function(p){
+    if (!wkBuckets[p.yw]) wkBuckets[p.yw] = { count: 0, eng: 0 };
+    wkBuckets[p.yw].count++; wkBuckets[p.yw].eng += p.eng;
+  });
+  const sortedWks = Object.keys(wkBuckets).sort();
+  const last8 = sortedWks.slice(-8).map(function(w){
+    return { week: w, posts: wkBuckets[w].count, eng: wkBuckets[w].eng, avg: Math.round(wkBuckets[w].eng / wkBuckets[w].count) };
+  });
+  // 預測下週（線性回歸：簡化為近 4 週平均 + 趨勢）
+  let predict = 0; let trend = '持平';
+  if (last8.length >= 4) {
+    const recent4 = last8.slice(-4);
+    const avg4 = recent4.reduce(function(s,x){return s+x.avg;}, 0) / 4;
+    const slope = (recent4[3].avg - recent4[0].avg) / 3;
+    predict = Math.max(0, Math.round(avg4 + slope));
+    if (slope > avg4 * 0.1) trend = '上升';
+    else if (slope < -avg4 * 0.1) trend = '下滑';
+  }
+  out.block5_growth = {
+    weeks: last8, predict_next: predict, trend: trend,
+    action: trend === '上升' ? '近 4 週呈上升、預估下週單篇平均 ' + predict + '。維持節奏、加碼 Reels。' :
+            trend === '下滑' ? '⚠️ 近 4 週呈下滑、預估下週 ' + predict + '。改 hook 公式、換主題、增加 Reels 比例。' :
+            '近 4 週持平、預估 ' + predict + '。試新題材推一波。'
+  };
+
+  /* ===== Block 6: 發文頻率 vs 互動 ===== */
+  // 把 ig 依週分組、看「該週發文數」對應「平均互動」
+  const freqCorr = sortedWks.slice(-12).map(function(w){
+    return { week: w, posts_per_week: wkBuckets[w].count, avg_eng: Math.round(wkBuckets[w].eng / wkBuckets[w].count) };
+  });
+  // 找最佳節奏
+  const byPosts = {};
+  freqCorr.forEach(function(x){
+    const bucket = x.posts_per_week >= 7 ? '7+' : (x.posts_per_week >= 5 ? '5-6' : (x.posts_per_week >= 3 ? '3-4' : '1-2'));
+    if (!byPosts[bucket]) byPosts[bucket] = { weeks: 0, total_avg: 0 };
+    byPosts[bucket].weeks++; byPosts[bucket].total_avg += x.avg_eng;
+  });
+  const buckets = Object.keys(byPosts).map(function(b){
+    return { bucket: b + '篇/週', weeks: byPosts[b].weeks, avg: Math.round(byPosts[b].total_avg / byPosts[b].weeks) };
+  }).sort(function(a,b){ return b.avg - a.avg; });
+  let freqAction = '無資料';
+  if (buckets.length >= 2) {
+    freqAction = '最佳節奏：' + buckets[0].bucket + '（單篇平均 ' + buckets[0].avg + '）、避免 ' + buckets[buckets.length-1].bucket + '（' + buckets[buckets.length-1].avg + '）';
+  }
+  out.block6_frequency = { items: buckets, recent: freqCorr, action: freqAction };
+
+  return out;
+}
+
+function hist_yearWeek_(dt) {
+  const d = new Date(dt);
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate() + 4 - (d.getDay()||7));
+  const yearStart = new Date(d.getFullYear(),0,1);
+  const wn = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+  return d.getFullYear() + '-W' + (wn<10?'0':'') + wn;
+}
