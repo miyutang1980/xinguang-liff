@@ -343,6 +343,35 @@ function ar2_replyFB_(commentId, message, token) {
   return code === 200;
 }
 
+/* ========== 診斷工具：列出粉專最近所有留言 + 處理狀態 ========== */
+function diagnoseFBAllComments() {
+  const ss = SpreadsheetApp.openById(AR2_SS_ID);
+  const token = ar2_setting_('FB_PAGE_TOKEN');
+  const pageId = ar2_setting_('FB_PAGE_ID');
+  const fbBase = ar2_fbBase_();
+
+  Logger.log('=== Token 前 30 字: ' + token.substring(0,30) + ' ===');
+
+  const postsUrl = fbBase + '/' + pageId + '/posts?fields=id&limit=20&access_token=' + token;
+  const pr = JSON.parse(UrlFetchApp.fetch(postsUrl, {muteHttpExceptions:true}).getContentText());
+  if (pr.error) { Logger.log('ERR: ' + JSON.stringify(pr.error)); return; }
+
+  let total=0, handled=0, pending=0;
+  for (const p of (pr.data||[])) {
+    const cu = fbBase + '/' + p.id + '/comments?fields=id,message,from&limit=25&access_token=' + token;
+    const cr = JSON.parse(UrlFetchApp.fetch(cu, {muteHttpExceptions:true}).getContentText());
+    for (const c of (cr.data||[])) {
+      total++;
+      if (c.from && c.from.id === pageId) continue;
+      const done = ar2_alreadyHandled_(c.id);
+      const status = done ? '已處理' : '待處理';
+      if (done) handled++; else pending++;
+      Logger.log(status + ' | ' + (c.from && c.from.name || '?') + ' | ' + String(c.message||'').substring(0,50) + ' | id=' + c.id);
+    }
+  }
+  Logger.log('=== 統計：' + total + ' 留言、' + handled + ' 已處理、' + pending + ' 待處理 ===');
+}
+
 /* ========== 診斷工具：強制重跑 Maggie 留言（清掉 already_handled） ========== */
 function diagnoseFBReplyForce() {
   const ss = SpreadsheetApp.openById(AR2_SS_ID);
