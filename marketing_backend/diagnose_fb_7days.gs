@@ -18,16 +18,22 @@ function diagnoseFb7Days() {
   let count = 0;
   let totalLikes = 0, totalComments = 0, totalShares = 0;
   const allFb = [];
+  let rawFbCount = 0, dateParseFail = 0;
+  const platformDist = {};
   
+  Logger.log('Historical_Posts 總列數: ' + data.length);
   data.forEach(function(r, idx){
     const platform = String(r[1]||'');
+    platformDist[platform] = (platformDist[platform]||0) + 1;
     if (platform !== 'FB') return;
+    rawFbCount++;
     const ts = String(r[3]||'');
+    if (rawFbCount <= 5) Logger.log('FB row ' + (idx+2) + ' 原始 ts=[' + ts + '] type=' + typeof r[3]);
     let dt;
     try {
       dt = new Date(ts.replace(' ','T') + ':00+08:00');
-      if (isNaN(dt.getTime())) return;
-    } catch(e) { return; }
+      if (isNaN(dt.getTime())) { dateParseFail++; return; }
+    } catch(e) { dateParseFail++; return; }
     
     const likes = Number(r[8])||0;
     const comments = Number(r[9])||0;
@@ -43,6 +49,11 @@ function diagnoseFb7Days() {
     Logger.log('row ' + (idx+2) + ' | ' + ts + ' | likes=' + likes + ' comments=' + comments + ' shares=' + shares + ' | id=' + r[2]);
   });
   
+  Logger.log('===== Platform 分布 =====');
+  Object.keys(platformDist).forEach(function(k){
+    Logger.log('  ' + k + ': ' + platformDist[k] + ' 筆');
+  });
+  Logger.log('FB 原始筆數: ' + rawFbCount + '、日期解析失敗: ' + dateParseFail);
   Logger.log('===== 7 天總計 =====');
   Logger.log('FB 篇數: ' + count);
   Logger.log('總 likes: ' + totalLikes + '、總 comments: ' + totalComments + '、總 shares: ' + totalShares);
