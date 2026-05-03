@@ -592,27 +592,144 @@ function renderKpiRange(d) {
   document.getElementById('kpi-ig-avg').textContent = ig.avg || 0;
   document.getElementById('kpi-fb-posts').textContent = fb.posts || 0;
   document.getElementById('kpi-fb-avg').textContent = fb.avg || 0;
-  // 趨勢圖
+  // 趨勢圖（Chart.js 動態版）
   var daily = (d && d.daily) || [];
   var ch = document.getElementById('chart-daily-range');
   if (!ch) return;
-  if (!daily.length) { ch.innerHTML = '<div style="color:#999;padding:20px;text-align:center">無資料</div>'; return; }
-  var maxV = 1;
-  daily.forEach(function(x){ if (x.ig > maxV) maxV = x.ig; if (x.fb > maxV) maxV = x.fb; });
-  var bars = daily.map(function(x){
-    var hIg = Math.round((x.ig / maxV) * 100);
-    var hFb = Math.round((x.fb / maxV) * 100);
-    var w = (100/daily.length).toFixed(2);
-    return '<div style="display:inline-block;width:' + w + '%;text-align:center;vertical-align:bottom">' +
-      '<div style="display:flex;justify-content:center;align-items:flex-end;height:140px;gap:2px;padding:0 2px">' +
-        '<div title="IG ' + x.ig + '" style="width:9px;background:linear-gradient(180deg,#f09433,#bc1888);height:' + hIg + '%;border-radius:3px 3px 0 0;min-height:2px;box-shadow:0 1px 2px rgba(220,39,67,.25)"></div>' +
-        '<div title="FB ' + x.fb + '" style="width:9px;background:linear-gradient(180deg,#42a5f5,#1877f2);height:' + hFb + '%;border-radius:3px 3px 0 0;min-height:2px;box-shadow:0 1px 2px rgba(24,119,242,.25)"></div>' +
-      '</div>' +
-      '<div style="font-size:9px;color:#888;transform:rotate(-45deg);transform-origin:center top;margin-top:8px;white-space:nowrap">' + escapeText(x.date) + '</div>' +
-    '</div>';
-  }).join('');
-  ch.innerHTML = '<div style="white-space:nowrap;overflow-x:auto;padding-bottom:36px">' + bars + '</div>' +
-    '<div style="margin-top:8px;font-size:12px;color:#666;text-align:center"><span style="display:inline-block;width:10px;height:10px;background:linear-gradient(180deg,#f09433,#bc1888);border-radius:2px;margin-right:5px;vertical-align:middle"></span>IG　<span style="display:inline-block;width:10px;height:10px;background:linear-gradient(180deg,#42a5f5,#1877f2);border-radius:2px;margin:0 5px 0 14px;vertical-align:middle"></span>FB</div>';
+  if (!daily.length) { ch.innerHTML = '<div style="color:#999;padding:40px;text-align:center">無資料</div>'; return; }
+  renderTrendChart(ch, daily);
+}
+
+var _trendChart = null;
+var _chartJsLoading = false;
+var _chartJsLoaded = false;
+function loadChartJsOnce(cb) {
+  if (_chartJsLoaded || typeof Chart !== 'undefined') { _chartJsLoaded = true; cb(); return; }
+  if (_chartJsLoading) { setTimeout(function(){ loadChartJsOnce(cb); }, 200); return; }
+  _chartJsLoading = true;
+  var s = document.createElement('script');
+  // 拆開 ':/' 避開 Apps Script 預触發條件
+  s.src = 'https' + ':' + '//cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+  s.onload = function(){ _chartJsLoaded = true; _chartJsLoading = false; cb(); };
+  s.onerror = function(){ _chartJsLoading = false; cb(); };
+  document.head.appendChild(s);
+}
+
+function renderTrendChart(container, daily) {
+  if (typeof Chart === 'undefined') {
+    container.innerHTML = '<div style="color:#888;padding:20px;text-align:center">載入圖表引擎...</div>';
+    loadChartJsOnce(function(){ renderTrendChart(container, daily); });
+    return;
+  }
+  // 重建 canvas
+  container.innerHTML = '<canvas id="trend-canvas" style="width:100%;height:280px"></canvas>';
+  var canvas = document.getElementById('trend-canvas');
+  var ctx = canvas.getContext('2d');
+
+  var labels = daily.map(function(x){ return x.date.substring(5); });
+  var igData = daily.map(function(x){ return x.ig || 0; });
+  var fbData = daily.map(function(x){ return x.fb || 0; });
+
+  // 資料點少 ≤ 14 用柱、多用曲線
+  var asBar = daily.length <= 14;
+
+  // 漸層填充（曲線圖下方）
+  var igGrad = ctx.createLinearGradient(0, 0, 0, 280);
+  igGrad.addColorStop(0, 'rgba(220,39,67,0.35)');
+  igGrad.addColorStop(1, 'rgba(220,39,67,0)');
+  var fbGrad = ctx.createLinearGradient(0, 0, 0, 280);
+  fbGrad.addColorStop(0, 'rgba(24,119,242,0.35)');
+  fbGrad.addColorStop(1, 'rgba(24,119,242,0)');
+
+  if (_trendChart) { try { _trendChart.destroy(); } catch(e){} }
+
+  _trendChart = new Chart(ctx, {
+    type: asBar ? 'bar' : 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'IG',
+          data: igData,
+          backgroundColor: asBar ? 'rgba(220,39,67,0.85)' : igGrad,
+          borderColor: '#dc2743',
+          borderWidth: asBar ? 0 : 2.5,
+          borderRadius: asBar ? 4 : 0,
+          fill: !asBar,
+          tension: 0.4,
+          pointBackgroundColor: '#dc2743',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: asBar ? 0 : 4,
+          pointHoverRadius: 6
+        },
+        {
+          label: 'FB',
+          data: fbData,
+          backgroundColor: asBar ? 'rgba(24,119,242,0.85)' : fbGrad,
+          borderColor: '#1877f2',
+          borderWidth: asBar ? 0 : 2.5,
+          borderRadius: asBar ? 4 : 0,
+          fill: !asBar,
+          tension: 0.4,
+          pointBackgroundColor: '#1877f2',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: asBar ? 0 : 4,
+          pointHoverRadius: 6
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: {
+        duration: 900,
+        easing: 'easeOutQuart'
+      },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          align: 'end',
+          labels: {
+            usePointStyle: true,
+            pointStyle: 'circle',
+            padding: 14,
+            font: { size: 12, family: 'Noto Sans TC' },
+            color: '#444'
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(31,56,100,0.95)',
+          titleColor: '#fff',
+          titleFont: { size: 12, weight: '600' },
+          bodyColor: '#fff',
+          bodyFont: { size: 13 },
+          padding: 10,
+          cornerRadius: 8,
+          displayColors: true,
+          boxPadding: 4,
+          callbacks: {
+            title: function(items){ return items[0].label; },
+            label: function(item){ return ' ' + item.dataset.label + '：' + item.parsed.y + ' 互動'; }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: '#888', font: { size: 11 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: 'rgba(0,0,0,0.05)', drawBorder: false },
+          border: { display: false },
+          ticks: { color: '#888', font: { size: 11 }, padding: 8 }
+        }
+      }
+    }
+  });
 }
 
 /* ========== Phase 4: 完整 6 區塊拆解 ========== */
