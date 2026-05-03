@@ -878,10 +878,49 @@ function renderDeepAnalytics(d) {
 }
 
 function deepCardWrap_(title, icon, bodyHtml, actionHtml) {
+  // 舊版、保留給 details fallback
   return '<div style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px">' +
     '<h3 style="margin:0 0 12px 0;color:var(--navy);font-size:15px">' + icon + ' ' + escapeText(title) + '</h3>' +
     bodyHtml +
     (actionHtml ? '<div style="margin-top:12px;background:#fef9f3;border-left:4px solid #d4a574;border-radius:6px;padding:10px;font-size:13px;color:#222"><b>⏩ 戰術建議：</b>' + actionHtml + '</div>' : '') +
+  '</div>';
+}
+
+/**
+ * 新版：「結論卡」風格
+ * @param {string} idx 編號 1-6
+ * @param {string} icon emoji
+ * @param {string} title 区塊名
+ * @param {string} headline 一句話重點（大字）
+ * @param {string|array} evidence 小證據（字串或 chip 陣列 [{label,value}]）
+ * @param {string} action 表代去做什麼
+ * @param {string} detailsHtml 可折疊的原始圖表
+ */
+function conclusionCard_(idx, icon, title, headline, evidence, action, detailsHtml) {
+  var evHtml = '';
+  if (typeof evidence === 'string' && evidence) {
+    evHtml = '<div style="font-size:12px;color:#666;margin-bottom:10px">' + evidence + '</div>';
+  } else if (Array.isArray(evidence) && evidence.length) {
+    evHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">' +
+      evidence.map(function(e){
+        return '<span style="display:inline-flex;align-items:center;gap:4px;background:#f3f5fa;border:1px solid var(--line2);border-radius:14px;padding:4px 10px;font-size:11px;color:#555">' +
+          '<span style="color:#888">' + escapeText(e.label) + '</span>' +
+          '<b style="color:var(--navy)">' + escapeText(String(e.value)) + '</b>' +
+        '</span>';
+      }).join('') +
+    '</div>';
+  }
+  return '<div class="card" style="padding:0;overflow:hidden">' +
+    '<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:linear-gradient(90deg,#fafbfd,#fff);border-bottom:1px solid var(--line2)">' +
+      '<span style="width:26px;height:26px;background:var(--navy);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">' + idx + '</span>' +
+      '<span style="font-size:14px;font-weight:700;color:var(--navy);letter-spacing:.3px">' + icon + '　' + escapeText(title) + '</span>' +
+    '</div>' +
+    '<div style="padding:16px">' +
+      '<div style="font-size:16px;font-weight:700;color:#1a1c20;line-height:1.5;margin-bottom:10px">' + headline + '</div>' +
+      evHtml +
+      (action ? '<div style="background:linear-gradient(90deg,#fff8e6,#fffbf2);border-left:4px solid #d4a574;border-radius:8px;padding:10px 12px;font-size:13px;color:#5a4a1a;font-weight:500">→ ' + escapeText(action) + '</div>' : '') +
+      (detailsHtml ? '<details style="margin-top:10px;cursor:pointer"><summary style="font-size:12px;color:#888;padding:4px 0">看原始資料</summary><div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line2)">' + detailsHtml + '</div></details>' : '') +
+    '</div>' +
   '</div>';
 }
 
@@ -983,26 +1022,39 @@ function renderBlock5Growth(b) {
   var el = document.getElementById('deep-block5'); if (!el || !b) return;
   var weeks = b.weeks || [];
   if (!weeks.length) { el.innerHTML = ''; return; }
-  var maxAvg = Math.max.apply(null, weeks.map(function(x){return x.avg||1;}));
+  var trend = b.trend || '持平';
+  var trendColor = trend === '上升' ? '#2b8a3e' : (trend === '下滑' ? '#c92a2a' : '#888');
+  var trendIcon = trend === '上升' ? '↗' : (trend === '下滑' ? '↘' : '→');
+  var predictNext = b.predict_next || 0;
+  // headline
+  var headline = '近 8 週趨勢 <b style="color:' + trendColor + '">' + trendIcon + ' ' + escapeText(trend) + '</b>、預測下週平均 <b style="color:#c92a2a">' + predictNext + '</b> 互動/篇';
+  // evidence chips
+  var firstAvg = weeks[0] && weeks[0].avg || 0;
+  var lastAvg = weeks[weeks.length-1] && weeks[weeks.length-1].avg || 0;
+  var maxAvg = Math.max.apply(null, weeks.map(function(x){return x.avg||0;}));
+  var evidence = [
+    {label: '8 週前', value: firstAvg},
+    {label: '本週', value: lastAvg},
+    {label: '最高週', value: maxAvg},
+    {label: '預測下週', value: predictNext}
+  ];
+  // details: 8 週柱狀圖 + 預測柱
+  var maxBar = Math.max(maxAvg, predictNext, 1);
   var bars = weeks.map(function(x){
-    var h = Math.round((x.avg / maxAvg) * 100);
+    var h = Math.round((x.avg / maxBar) * 100);
     return '<div style="display:inline-block;text-align:center;width:' + (100/(weeks.length+1)).toFixed(2) + '%;vertical-align:bottom">' +
       '<div style="height:120px;display:flex;align-items:flex-end;justify-content:center"><div style="width:60%;background:linear-gradient(180deg,#d4a574,#1f3864);height:' + h + '%;border-radius:4px 4px 0 0" title="平均 ' + x.avg + '、' + x.posts + ' 篇"></div></div>' +
       '<div style="font-size:10px;color:#666;margin-top:4px">' + escapeText(x.week.substring(5)) + '</div>' +
       '<div style="font-size:10px;color:#999">' + x.avg + '</div>' +
     '</div>';
   }).join('');
-  // 預測柱
   var predictBar = '<div style="display:inline-block;text-align:center;width:' + (100/(weeks.length+1)).toFixed(2) + '%;vertical-align:bottom">' +
-    '<div style="height:120px;display:flex;align-items:flex-end;justify-content:center"><div style="width:60%;background:repeating-linear-gradient(45deg,#d4a574,#d4a574 4px,#fff 4px,#fff 8px);border:2px dashed #c92a2a;height:' + Math.round((b.predict_next/maxAvg)*100) + '%;border-radius:4px 4px 0 0"></div></div>' +
+    '<div style="height:120px;display:flex;align-items:flex-end;justify-content:center"><div style="width:60%;background:repeating-linear-gradient(45deg,#d4a574,#d4a574 4px,#fff 4px,#fff 8px);border:2px dashed #c92a2a;height:' + Math.round((predictNext/maxBar)*100) + '%;border-radius:4px 4px 0 0"></div></div>' +
     '<div style="font-size:10px;color:#c92a2a;margin-top:4px;font-weight:700">下週預</div>' +
-    '<div style="font-size:10px;color:#c92a2a;font-weight:700">' + b.predict_next + '</div>' +
+    '<div style="font-size:10px;color:#c92a2a;font-weight:700">' + predictNext + '</div>' +
   '</div>';
-  var trendColor = b.trend === '上升' ? '#2b8a3e' : (b.trend === '下滑' ? '#c92a2a' : '#888');
-  var trendIcon = b.trend === '上升' ? '↗' : (b.trend === '下滑' ? '↘' : '→');
-  var body = '<div style="font-size:13px;margin-bottom:10px"><b>趨勢：</b><span style="color:' + trendColor + ';font-weight:700">' + trendIcon + ' ' + escapeText(b.trend) + '</span>　　<b>預測下週單篇平均：</b><span style="color:#c92a2a;font-weight:700">' + b.predict_next + '</span></div>' +
-    '<div style="white-space:nowrap;overflow-x:auto">' + bars + predictBar + '</div>';
-  el.innerHTML = deepCardWrap_('成長曲線 × 下週預測（近 8 週 IG）', '📈', body, escapeText(b.action));
+  var detailsHtml = '<div style="white-space:nowrap;overflow-x:auto;padding:8px 0">' + bars + predictBar + '</div>';
+  el.innerHTML = conclusionCard_(5, '📈', '成長曲線 × 下週預測（近 8 週 IG）', headline, evidence, escapeText(b.action || ''), detailsHtml);
 }
 
 function renderBlock6Frequency(b) {
