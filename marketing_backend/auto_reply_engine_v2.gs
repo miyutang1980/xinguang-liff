@@ -320,19 +320,71 @@ function ar2_fbBase_() {
 }
 
 function ar2_replyIG_(commentId, message, token) {
-  UrlFetchApp.fetch(ar2_fbBase_() + '/' + commentId + '/replies', {
+  const res = UrlFetchApp.fetch(ar2_fbBase_() + '/' + commentId + '/replies', {
     method: 'post',
     payload: { message: message, access_token: token },
     muteHttpExceptions: true
   });
+  const code = res.getResponseCode();
+  if (code !== 200) Logger.log('IG reply FAIL ' + code + ' (' + commentId + '): ' + res.getContentText().substring(0,300));
+  else Logger.log('IG reply OK (' + commentId + ')');
+  return code === 200;
 }
 
 function ar2_replyFB_(commentId, message, token) {
-  UrlFetchApp.fetch(ar2_fbBase_() + '/' + commentId + '/comments', {
+  const res = UrlFetchApp.fetch(ar2_fbBase_() + '/' + commentId + '/comments', {
     method: 'post',
     payload: { message: message, access_token: token },
     muteHttpExceptions: true
   });
+  const code = res.getResponseCode();
+  if (code !== 200) Logger.log('FB reply FAIL ' + code + ' (' + commentId + '): ' + res.getContentText().substring(0,300));
+  else Logger.log('FB reply OK (' + commentId + ')');
+  return code === 200;
+}
+
+/* ========== 診斷工具：強制重跑 Maggie 留言（清掉 already_handled） ========== */
+function diagnoseFBReplyForce() {
+  const ss = SpreadsheetApp.openById(AR2_SS_ID);
+  const token = ar2_setting_('FB_PAGE_TOKEN');
+  const pageId = ar2_setting_('FB_PAGE_ID');
+  const fbBase = ar2_fbBase_();
+
+  Logger.log('=== Step 1: 抓粉專最近 5 篇 ===');
+  const postsUrl = fbBase + '/' + pageId + '/posts?fields=id,message,created_time&limit=5&access_token=' + token;
+  const pr = JSON.parse(UrlFetchApp.fetch(postsUrl, {muteHttpExceptions:true}).getContentText());
+  if (pr.error) { Logger.log('ERR: ' + JSON.stringify(pr.error)); return; }
+  (pr.data||[]).forEach(function(p,i){ Logger.log((i+1)+'. id='+p.id+' msg='+String(p.message||'').substring(0,40)); });
+
+  Logger.log('=== Step 2: 找含「小一」「學嗎」的留言 ===');
+  let target = null;
+  for (const p of (pr.data||[])) {
+    const cu = fbBase + '/' + p.id + '/comments?fields=id,message,from,created_time&limit=25&access_token=' + token;
+    const cr = JSON.parse(UrlFetchApp.fetch(cu, {muteHttpExceptions:true}).getContentText());
+    if (cr.error) { Logger.log('comments err on '+p.id+': '+JSON.stringify(cr.error)); continue; }
+    for (const c of (cr.data||[])) {
+      Logger.log('  comment: '+(c.from&&c.from.name)+' | '+c.message+' | id='+c.id);
+      if (c.from && c.from.id === pageId) continue;
+      const txt = String(c.message||'');
+      if (txt.indexOf('小一')>=0 || txt.indexOf('學嗎')>=0 || txt.indexOf('Maggie')>=0) {
+        target = { postId: p.id, comment: c };
+      }
+    }
+  }
+  if (!target) { Logger.log('找不到目標留言'); return; }
+  Logger.log('=== Step 3: 找到目標 → '+target.comment.message+' ===');
+
+  Logger.log('=== Step 4: 測 AI 產生回覆 ===');
+  const aiText = ar2_aiReply_(target.comment.message, 'FB');
+  Logger.log('AI 回覆: ' + aiText);
+  if (!aiText) { Logger.log('AI 失敗、停止'); return; }
+
+  const finalText = ar2_decorateReply_(aiText);
+  Logger.log('裝飾後: ' + finalText);
+
+  Logger.log('=== Step 5: 強制送出回覆 ===');
+  const ok = ar2_replyFB_(target.comment.id, finalText, token);
+  Logger.log('結果: ' + (ok ? '成功' : '失敗'));
 }
 
 function ar2_loadRules_(ss, platformPrefix) {
