@@ -57,66 +57,85 @@ function ensureSheetsExist_() {
   }
 }
 
-/* ========== IG 留言 v2 ========== */
+/* ========== IG 留言 v2（直接掃 IG 商業帳號最近 20 篇 media，含 Reels）========== */
 function pollIGCommentsV2() {
   const ss = SpreadsheetApp.openById(AR2_SS_ID);
-  const qSh = ss.getSheetByName('排程佇列 Posting_Queue');
   const iSh = ss.getSheetByName('互動紀錄 Interactions');
   const rules = ar2_loadRules_(ss, 'IG');
   const token = ar2_setting_('FB_PAGE_TOKEN');
+  const igId = ar2_setting_('IG_BUSINESS_ID');
+  const fbBase = ar2_fbBase_();
 
-  const last = qSh.getLastRow();
-  if (last < 2) return;
-  const data = qSh.getRange(2, 1, last - 1, 22).getValues();
-  const recent = data.filter(function(r){ return r[15] === '已發布' && r[17] && String(r[17]).indexOf('IG:') >= 0; }).slice(-30);
+  if (!token || !igId) { Logger.log('IG v2 poll: 缺 token 或 IG_BUSINESS_ID'); return; }
 
-  for (const r of recent) {
-    const m = String(r[17]).match(/IG:(\d+)/);
-    if (!m) continue;
-    const mediaId = m[1];
+  // 1. 直接抓 IG 商業帳號最近 20 篇 media（含 Reels）
+  let medias = [];
+  try {
+    const mediaUrl = fbBase + '/' + igId + '/media?fields=id&limit=20&access_token=' + token;
+    const r = JSON.parse(UrlFetchApp.fetch(mediaUrl, { muteHttpExceptions: true }).getContentText());
+    if (r.error) { Logger.log('IG media API error: ' + JSON.stringify(r.error)); return; }
+    medias = r.data || [];
+  } catch (e) { Logger.log('IG media fetch fail: ' + e); return; }
+
+  Logger.log('IG v2 poll: 掃 ' + medias.length + ' 篇 media');
+
+  let totalComments = 0, totalHandled = 0;
+  for (const m of medias) {
+    const mediaId = m.id;
     try {
-      const fbBase = ar2_fbBase_();
       const url = fbBase + '/' + mediaId + '/comments?fields=id,text,username,from,timestamp&limit=25&access_token=' + token;
       const res = JSON.parse(UrlFetchApp.fetch(url, { muteHttpExceptions: true }).getContentText());
       if (!res.data) continue;
       for (const c of res.data) {
+        totalComments++;
         if (ar2_alreadyHandled_(c.id)) continue;
-        ar2_handleComment_('IG', mediaId, c.id, c.from && c.from.id || c.username, c.username, c.text, rules, ss, iSh, token);
+        ar2_handleComment_('IG', mediaId, c.id, (c.from && c.from.id) || c.username, c.username, c.text, rules, ss, iSh, token);
+        totalHandled++;
       }
-    } catch (e) { Logger.log('IG v2 poll fail: ' + e); }
+    } catch (e) { Logger.log('IG v2 poll fail (' + mediaId + '): ' + e); }
   }
+  Logger.log('IG v2 poll done: 共 ' + totalComments + ' 留言、處理 ' + totalHandled + ' 則新留言');
 }
 
-/* ========== FB 留言 v2 ========== */
+/* ========== FB 留言 v2（直接掃粉專最近 20 篇、含手動發的 Reels）========== */
 function pollFBCommentsV2() {
   const ss = SpreadsheetApp.openById(AR2_SS_ID);
-  const qSh = ss.getSheetByName('排程佇列 Posting_Queue');
   const iSh = ss.getSheetByName('互動紀錄 Interactions');
   const rules = ar2_loadRules_(ss, 'FB');
   const token = ar2_setting_('FB_PAGE_TOKEN');
   const pageId = ar2_setting_('FB_PAGE_ID');
+  const fbBase = ar2_fbBase_();
 
-  const last = qSh.getLastRow();
-  if (last < 2) return;
-  const data = qSh.getRange(2, 1, last - 1, 22).getValues();
-  const recent = data.filter(function(r){ return r[15] === '已發布' && r[17] && String(r[17]).indexOf('FB:') >= 0; }).slice(-30);
+  if (!token || !pageId) { Logger.log('FB v2 poll: 缺 token 或 pageId'); return; }
 
-  for (const r of recent) {
-    const m = String(r[17]).match(/FB:([\d_]+)/);
-    if (!m) continue;
-    const postId = m[1];
+  // 1. 直接抓粉專最近 20 篇貼文（含 Reels、手動發的也涵蓋）
+  let posts = [];
+  try {
+    const postsUrl = fbBase + '/' + pageId + '/posts?fields=id&limit=20&access_token=' + token;
+    const r = JSON.parse(UrlFetchApp.fetch(postsUrl, { muteHttpExceptions: true }).getContentText());
+    if (r.error) { Logger.log('FB posts API error: ' + JSON.stringify(r.error)); return; }
+    posts = r.data || [];
+  } catch (e) { Logger.log('FB posts fetch fail: ' + e); return; }
+
+  Logger.log('FB v2 poll: 掃 ' + posts.length + ' 篇貼文');
+
+  let totalComments = 0, totalHandled = 0;
+  for (const p of posts) {
+    const postId = p.id;
     try {
-      const fbBase = ar2_fbBase_();
       const url = fbBase + '/' + postId + '/comments?fields=id,message,from,created_time&limit=25&access_token=' + token;
       const res = JSON.parse(UrlFetchApp.fetch(url, { muteHttpExceptions: true }).getContentText());
       if (!res.data) continue;
       for (const c of res.data) {
+        totalComments++;
         if (ar2_alreadyHandled_(c.id)) continue;
         if (c.from && c.from.id === pageId) continue;
         ar2_handleComment_('FB', postId, c.id, c.from && c.from.id, c.from && c.from.name, c.message, rules, ss, iSh, token);
+        totalHandled++;
       }
-    } catch (e) { Logger.log('FB v2 poll fail: ' + e); }
+    } catch (e) { Logger.log('FB v2 poll fail (' + postId + '): ' + e); }
   }
+  Logger.log('FB v2 poll done: 共 ' + totalComments + ' 留言、處理 ' + totalHandled + ' 則新留言');
 }
 
 /* ========== 統一處理一則留言（核心邏輯）========== */
