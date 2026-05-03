@@ -216,10 +216,20 @@
       <div class="kpi fb"><div class="label"><span class="dot fb"></span><span id="lbl-fb-posts">30 天 FB 發文</span></div><div class="num" id="kpi-fb-posts">—</div><div class="sub">Facebook 發佈量</div></div>
       <div class="kpi fb"><div class="label"><span class="dot fb"></span><span id="lbl-fb-avg">30 天 FB 單篇平均</span></div><div class="num" id="kpi-fb-avg">—</div><div class="sub">讚+留言+分享</div></div>
     </div>
-    <div class="card" style="margin-top:14px">
-      <h3 class="card-title">每日互動趨勢</h3>
-      <div id="chart-daily-range" class="loading" style="min-height:120px">載入中...</div>
+    <div class="card" id="health-report-card" style="margin-top:14px;padding:0;overflow:hidden">
+      <div style="background:linear-gradient(135deg,#1f3864,#2a4d8f);color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0;font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px">📊 行銷體檢報告</h3>
+        <span style="font-size:11px;opacity:.85;background:rgba(255,255,255,.15);padding:4px 10px;border-radius:12px" id="health-period">30 天</span>
+      </div>
+      <div id="health-body" style="padding:18px">
+        <div style="color:#999;text-align:center;padding:20px">載入中...</div>
+      </div>
     </div>
+    <!-- 小型趨勢條（保留、收起） -->
+    <details class="card" style="margin-top:10px;padding:12px 16px;cursor:pointer">
+      <summary style="font-size:13px;color:#666;font-weight:500">看原始每日互動走勢圖</summary>
+      <div id="chart-daily-range" class="loading" style="min-height:120px;margin-top:10px">載入中...</div>
+    </details>
     <div class="kpis" style="margin-top:14px">
       <div class="kpi gold"><div class="label"><span class="dot gold"></span>資料總筆（歷史）</div><div class="num" id="ins-total">—</div><div class="sub">Historical_Posts 累計</div></div>
       <div class="kpi mint"><div class="label"><span class="dot mint"></span>7 天 Audience 觸及</div><div class="num" id="ins-reach">—</div><div class="sub">Reach、不重複人數</div></div>
@@ -583,6 +593,111 @@ function setKpiRange(days) {
     .withSuccessHandler(function(d){ renderKpiRange(d || {}); })
     .withFailureHandler(function(err){ showError('getKpisRange', err); if(ch) ch.innerHTML = '<div style="color:#c00">載入失敗</div>'; })
     .getKpisRange(days);
+  // 同步拉行銷體檢報告
+  loadMarketingHealth(days);
+}
+
+function loadMarketingHealth(days) {
+  var period = document.getElementById('health-period');
+  if (period) period.textContent = days + ' 天';
+  var body = document.getElementById('health-body');
+  if (body) body.innerHTML = '<div style="color:#999;text-align:center;padding:20px">分析中...</div>';
+  google.script.run
+    .withSuccessHandler(function(r){ renderMarketingHealth(r || {}); })
+    .withFailureHandler(function(err){
+      if (body) body.innerHTML = '<div style="color:#c00;text-align:center;padding:20px">載入失敗：' + ((err && err.message) || err) + '</div>';
+    })
+    .getMarketingHealth(days);
+}
+
+function renderMarketingHealth(r) {
+  var body = document.getElementById('health-body');
+  if (!body) return;
+  var o = r.overall || {};
+  var msgs = (o.trend_msg) || [];
+  var best = r.best, worst = r.worst;
+  var actions = r.actions || [];
+
+  function colorBg(c) {
+    if (c === 'good') return '#dcf3e1';
+    if (c === 'ok')   return '#e6f0fb';
+    if (c === 'warn') return '#fff4d9';
+    if (c === 'bad')  return '#fce0e0';
+    return '#f3f4f6';
+  }
+  function colorTx(c) {
+    if (c === 'good') return '#1c6a30';
+    if (c === 'ok')   return '#1f3864';
+    if (c === 'warn') return '#7a5a00';
+    if (c === 'bad')  return '#892020';
+    return '#444';
+  }
+  function iconStr(i) {
+    if (i === 'up')    return '↗️';
+    if (i === 'down')  return '↘️';
+    if (i === 'alert') return '⚠️';
+    if (i === 'info')  return 'ℹ️';
+    return '•';
+  }
+
+  // 區块 1：總體表現
+  var html = '<div style="margin-bottom:18px">';
+  html += '<div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:600">總體表現</div>';
+  msgs.forEach(function(m){
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:' + colorBg(m.color) + ';color:' + colorTx(m.color) + ';border-radius:8px;margin-bottom:6px;font-size:13px;font-weight:500">'
+         +  '<span style="font-size:16px">' + iconStr(m.icon) + '</span>'
+         +  '<span>' + escapeText(m.text) + '</span>'
+         +  '</div>';
+  });
+  html += '</div>';
+
+  // 區块 2：最強 + 最弱
+  if (best || worst) {
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:18px">';
+    if (best) {
+      html += '<div style="background:linear-gradient(135deg,#fff8e6,#fff);border:1px solid #f5d68a;border-radius:10px;padding:14px">'
+           +  '<div style="font-size:11px;color:#7a5a00;font-weight:700;letter-spacing:.5px;margin-bottom:6px">🔥 本期最強</div>'
+           +  '<div style="font-size:13px;color:#333;line-height:1.5">'
+           +    '<div><b>' + escapeText(best.day) + '（週' + escapeText(best.wd) + '）</b> ' + escapeText(best.platform) + ' · ' + escapeText(best.type || '') + '</div>'
+           +    '<div style="color:#666;margin:4px 0;font-size:12px">' + escapeText(best.caption || '（無文字）') + '</div>'
+           +    '<div style="font-size:18px;font-weight:800;color:#bc1888;margin:6px 0">' + best.eng + ' 互動</div>'
+           +    '<div style="font-size:12px;color:#7a5a00;background:#fff3cf;padding:6px 10px;border-radius:6px;margin-top:6px">→ 下週複製這個配方、同主題再發 1-2 篇</div>'
+           +  '</div></div>';
+    }
+    if (worst && worst !== best) {
+      html += '<div style="background:linear-gradient(135deg,#f4f5f8,#fff);border:1px solid #d8dbe5;border-radius:10px;padding:14px">'
+           +  '<div style="font-size:11px;color:#666;font-weight:700;letter-spacing:.5px;margin-bottom:6px">💤 本期最弱</div>'
+           +  '<div style="font-size:13px;color:#333;line-height:1.5">'
+           +    '<div><b>' + escapeText(worst.day) + '（週' + escapeText(worst.wd) + '）</b> ' + escapeText(worst.platform) + ' · ' + escapeText(worst.type || '') + '</div>'
+           +    '<div style="color:#666;margin:4px 0;font-size:12px">' + escapeText(worst.caption || '（無文字）') + '</div>'
+           +    '<div style="font-size:18px;font-weight:800;color:#666;margin:6px 0">' + worst.eng + ' 互動</div>'
+           +    '<div style="font-size:12px;color:#444;background:#eef0f6;padding:6px 10px;border-radius:6px;margin-top:6px">→ 這類主題下次要換包裝、或避免</div>'
+           +  '</div></div>';
+    }
+    html += '</div>';
+  }
+
+  // 區块 3：下一步行動
+  html += '<div>';
+  html += '<div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-weight:600">📅 下一步行動建議</div>';
+  if (actions.length === 0) {
+    html += '<div style="color:#999;padding:14px;text-align:center">無建議</div>';
+  } else {
+    actions.forEach(function(a, i){
+      var pri = a.priority === 1 ? { c:'#c14545', l:'高' } : (a.priority === 2 ? { c:'#e08c2a', l:'中' } : { c:'#2ea150', l:'低' });
+      html += '<div style="display:flex;gap:12px;padding:12px 14px;background:#fafbfd;border:1px solid var(--line2);border-left:3px solid ' + pri.c + ';border-radius:8px;margin-bottom:8px">'
+           +  '<div style="flex-shrink:0;width:28px;height:28px;background:' + pri.c + ';color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">' + (i+1) + '</div>'
+           +  '<div style="flex:1">'
+           +    '<div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:2px">' + escapeText(a.title) + ' <span style="font-size:10px;color:' + pri.c + ';font-weight:600;margin-left:4px">[優先級:' + pri.l + ']</span></div>'
+           +    '<div style="font-size:12px;color:#666;margin-bottom:4px">' + escapeText(a.detail) + '</div>'
+           +    '<div style="font-size:13px;color:#1f3864;font-weight:500">→ ' + escapeText(a.todo) + '</div>'
+           +  '</div>'
+           +  '</div>';
+    });
+  }
+  html += '</div>';
+
+  body.innerHTML = html;
 }
 
 function renderKpiRange(d) {

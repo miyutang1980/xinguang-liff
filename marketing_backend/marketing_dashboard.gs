@@ -1161,3 +1161,204 @@ function uninstallThumbRefreshTrigger() {
   Logger.log('removed: ' + removed);
   return { ok: true, removed: removed };
 }
+
+/**
+ * 行銷體檢報告：把 30 天資料變成「結論 + 行動」
+ * 不畫圖、給 4 區塊結論：總體表現、最強貼文、最弱貼文、下一步建議
+ */
+function getMarketingHealth(days) {
+  days = parseInt(days) || 30;
+  const ss = SpreadsheetApp.openById(DASH_SS_ID);
+  const sh = ss.getSheetByName('Historical_Posts');
+  const out = {
+    days: days,
+    overall: { trend_msg: [], status: 'ok' },
+    best: null,
+    worst: null,
+    actions: []
+  };
+  if (!sh || sh.getLastRow() < 2) {
+    out.overall.trend_msg.push({ icon: 'info', text: '尚無歷史資料' });
+    return out;
+  }
+
+  const now = new Date();
+  const cutNow = new Date(); cutNow.setDate(cutNow.getDate() - days);
+  const cutPrev = new Date(); cutPrev.setDate(cutPrev.getDate() - days * 2);
+
+  const data = sh.getRange(2, 1, sh.getLastRow()-1, 18).getValues();
+  const cur = { ig: { eng:0, posts:0, items:[] }, fb: { eng:0, posts:0, items:[] } };
+  const prev = { ig: { eng:0, posts:0 }, fb: { eng:0, posts:0 } };
+  const dailyEng = {}; // dayKey -> { ig, fb, total }
+
+  data.forEach(function(r){
+    const ts = tsToString_(r[3]);
+    let dt;
+    try {
+      dt = new Date(ts.replace(' ','T') + ':00+08:00');
+      if (isNaN(dt.getTime())) return;
+    } catch(e) { return; }
+
+    const platform = String(r[1]||'');
+    const eng = (Number(r[8])||0) + (Number(r[9])||0) + (Number(r[10])||0) + (Number(r[11])||0);
+    const dayKey = Utilities.formatDate(dt, 'Asia/Taipei', 'MM-dd');
+    const wd = ['日','一','二','三','四','五','六'][dt.getDay()];
+    const type = String(r[4]||'');
+    const caption = String(r[17]||r[7]||'').substring(0, 50);
+    const permalink = String(r[5]||'');
+
+    if (dt >= cutNow) {
+      if (platform === 'IG') { cur.ig.eng += eng; cur.ig.posts++; cur.ig.items.push({ day: dayKey, wd: wd, eng: eng, type: type, caption: caption, permalink: permalink, platform: 'IG' }); }
+      else if (platform === 'FB') { cur.fb.eng += eng; cur.fb.posts++; cur.fb.items.push({ day: dayKey, wd: wd, eng: eng, type: type, caption: caption, permalink: permalink, platform: 'FB' }); }
+      if (!dailyEng[dayKey]) dailyEng[dayKey] = { ig:0, fb:0, total:0 };
+      if (platform === 'IG') dailyEng[dayKey].ig += eng;
+      if (platform === 'FB') dailyEng[dayKey].fb += eng;
+      dailyEng[dayKey].total += eng;
+    } else if (dt >= cutPrev) {
+      if (platform === 'IG') { prev.ig.eng += eng; prev.ig.posts++; }
+      else if (platform === 'FB') { prev.fb.eng += eng; prev.fb.posts++; }
+    }
+  });
+
+  // ===== 總體表現 vs 上 N 天 =====
+  function pct(curV, prevV) {
+    if (prevV === 0) return curV > 0 ? 100 : 0;
+    return Math.round((curV - prevV) / prevV * 100);
+  }
+  const igPct = pct(cur.ig.eng, prev.ig.eng);
+  const fbPct = pct(cur.fb.eng, prev.fb.eng);
+
+  out.overall.cur_ig = cur.ig.eng;
+  out.overall.cur_fb = cur.fb.eng;
+  out.overall.prev_ig = prev.ig.eng;
+  out.overall.prev_fb = prev.fb.eng;
+  out.overall.ig_pct = igPct;
+  out.overall.fb_pct = fbPct;
+  out.overall.cur_ig_avg = cur.ig.posts ? Math.round(cur.ig.eng / cur.ig.posts) : 0;
+  out.overall.cur_fb_avg = cur.fb.posts ? Math.round(cur.fb.eng / cur.fb.posts) : 0;
+  out.overall.cur_ig_posts = cur.ig.posts;
+  out.overall.cur_fb_posts = cur.fb.posts;
+
+  // 訊息（綠/橘/紅）
+  out.overall.trend_msg.push({
+    icon: igPct >= 0 ? 'up' : 'down',
+    color: igPct >= 10 ? 'good' : (igPct >= 0 ? 'ok' : (igPct >= -15 ? 'warn' : 'bad')),
+    text: 'IG 互動 ' + (igPct >= 0 ? '↑' : '↓') + ' ' + Math.abs(igPct) + '%（' + prev.ig.eng + ' → ' + cur.ig.eng + '）'
+  });
+  out.overall.trend_msg.push({
+    icon: fbPct >= 0 ? 'up' : 'down',
+    color: fbPct >= 10 ? 'good' : (fbPct >= 0 ? 'ok' : (fbPct >= -15 ? 'warn' : 'bad')),
+    text: 'FB 互動 ' + (fbPct >= 0 ? '↑' : '↓') + ' ' + Math.abs(fbPct) + '%（' + prev.fb.eng + ' → ' + cur.fb.eng + '）'
+  });
+
+  // 連續低互動偵測（IG 平均 = 30天平均、若連續 N 天低於則警告）
+  const sortedDays = Object.keys(dailyEng).sort();
+  const igAvg = out.overall.cur_ig_avg;
+  let lowStreak = 0, maxLowStreak = 0;
+  sortedDays.forEach(function(k){
+    if (igAvg > 0 && dailyEng[k].ig < igAvg * 0.5) {
+      lowStreak++;
+      if (lowStreak > maxLowStreak) maxLowStreak = lowStreak;
+    } else { lowStreak = 0; }
+  });
+  if (maxLowStreak >= 3) {
+    out.overall.trend_msg.push({
+      icon: 'alert',
+      color: 'warn',
+      text: '連續 ' + maxLowStreak + ' 天 IG 互動低於平均一半、需要加強內容力度'
+    });
+  }
+
+  // 連續無發文偵測
+  let noPostStreak = 0, maxNoPost = 0;
+  sortedDays.forEach(function(k){
+    if (dailyEng[k].total === 0) { noPostStreak++; if (noPostStreak > maxNoPost) maxNoPost = noPostStreak; }
+    else noPostStreak = 0;
+  });
+  if (maxNoPost >= 3) {
+    out.overall.trend_msg.push({
+      icon: 'alert',
+      color: 'bad',
+      text: '出現連續 ' + maxNoPost + ' 天無發文紀錄、需要補上'
+    });
+  }
+
+  // ===== 最強 / 最弱 =====
+  const allItems = cur.ig.items.concat(cur.fb.items);
+  if (allItems.length > 0) {
+    allItems.sort(function(a,b){ return b.eng - a.eng; });
+    out.best = allItems[0];
+    out.worst = allItems[allItems.length - 1];
+  }
+
+  // ===== 下一步行動建議 =====
+  // 規則 1：複製最強貼文配方
+  if (out.best && out.best.eng > 0) {
+    out.actions.push({
+      priority: 1,
+      title: '複製成功配方',
+      detail: out.best.day + '（週' + out.best.wd + '）的「' + (out.best.type || '貼文') + '」拿到 ' + out.best.eng + ' 互動、是本期最高',
+      todo: '下週再產 1-2 篇同主題' + (out.best.platform === 'IG' ? ' IG ' : ' FB ') + '版本（題材：' + (out.best.caption || '同類型') + '）'
+    });
+  }
+  // 規則 2：FB 衰退就改格式
+  if (fbPct < -10) {
+    out.actions.push({
+      priority: 2,
+      title: 'FB 互動衰退',
+      detail: 'FB 互動較上 ' + days + ' 天下滑 ' + Math.abs(fbPct) + '%、可能演算法降權',
+      todo: '本週 FB 改用「家長見證短影片」或「孩子課堂實拍」、避免純文字+圖片'
+    });
+  }
+  // 規則 3：IG 衰退
+  if (igPct < -10) {
+    out.actions.push({
+      priority: 2,
+      title: 'IG 互動衰退',
+      detail: 'IG 互動較上 ' + days + ' 天下滑 ' + Math.abs(igPct) + '%',
+      todo: '提高 Reels 比例、固定週六 11:00 發、加強 hook 前 3 秒'
+    });
+  }
+  // 規則 4：連續無發文
+  if (maxNoPost >= 3) {
+    out.actions.push({
+      priority: 1,
+      title: '補回斷更',
+      detail: '出現連續 ' + maxNoPost + ' 天無發文',
+      todo: '下週至少補 ' + Math.max(maxNoPost, 3) + ' 篇、平均分配 IG/FB'
+    });
+  }
+  // 規則 5：FB 互動 = 0 警告
+  if (cur.fb.posts > 5 && cur.fb.eng === 0) {
+    out.actions.push({
+      priority: 1,
+      title: 'FB 互動數據異常',
+      detail: 'FB 共發 ' + cur.fb.posts + ' 篇、互動全為 0',
+      todo: '在 Apps Script 跑一次 fbBackfillInteractions 補抓 reactions（設定每日自動跑）'
+    });
+  }
+  // 規則 6：發文太少
+  const minPostsTarget = days === 7 ? 5 : (days === 30 ? 24 : 60);
+  const totalPosts = cur.ig.posts + cur.fb.posts;
+  if (totalPosts < minPostsTarget) {
+    out.actions.push({
+      priority: 3,
+      title: '發文量偏低',
+      detail: days + ' 天發 ' + totalPosts + ' 篇、低於建議 ' + minPostsTarget + ' 篇',
+      todo: '排程下週至少 ' + Math.ceil((minPostsTarget - totalPosts) / 4) + ' 篇/週、避免演算法忘記你'
+    });
+  }
+  // 規則 7：總體穩定 + 沒其他 actions
+  if (out.actions.length === 0) {
+    out.actions.push({
+      priority: 1,
+      title: '維持節奏',
+      detail: '本期表現穩定（IG ' + (igPct >= 0 ? '+' : '') + igPct + '% / FB ' + (fbPct >= 0 ? '+' : '') + fbPct + '%）',
+      todo: '繼續目前發文策略、可嘗試新題材測試 A/B'
+    });
+  }
+
+  out.actions.sort(function(a,b){ return a.priority - b.priority; });
+  out.actions = out.actions.slice(0, 5);
+  return out;
+}
