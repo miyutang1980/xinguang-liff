@@ -1107,3 +1107,57 @@ function refreshTopPostThumbs(limit) {
   Logger.log(JSON.stringify(result));
   return result;
 }
+
+/**
+ * 安裝每日自動重抓縮圖 trigger（凌晨 3:00 跑）
+ * 跑一次即可、之後每天自動重抓 Top 50 縮圖
+ *
+ * 用法：在 Apps Script 編輯器選 installThumbRefreshTrigger → 執行
+ * @return {object} { ok, removed, installed, nextRun }
+ */
+function installThumbRefreshTrigger() {
+  const FN = 'refreshTopPostThumbs';
+  let removed = 0;
+
+  // 砍掉同名舊 trigger
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(function(t){
+    if (t.getHandlerFunction() === FN) {
+      ScriptApp.deleteTrigger(t);
+      removed++;
+    }
+  });
+
+  // 建每日 3:00 trigger
+  ScriptApp.newTrigger(FN)
+    .timeBased()
+    .everyDays(1)
+    .atHour(3)
+    .nearMinute(0)
+    .create();
+
+  const result = {
+    ok: true,
+    removed: removed,
+    installed: 1,
+    nextRun: '每日凌晨 3:00（台北）'
+  };
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
+/**
+ * 移除每日自動重抓 trigger（如不需要再砍）
+ */
+function uninstallThumbRefreshTrigger() {
+  let removed = 0;
+  const triggers = ScriptApp.getProjectTriggers();
+  triggers.forEach(function(t){
+    if (t.getHandlerFunction() === 'refreshTopPostThumbs') {
+      ScriptApp.deleteTrigger(t);
+      removed++;
+    }
+  });
+  Logger.log('removed: ' + removed);
+  return { ok: true, removed: removed };
+}
