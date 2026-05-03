@@ -189,13 +189,54 @@ function ar2_decorateReply_(text) {
   return out;
 }
 
+/* ========== 開班資訊（5/3 學期調整、永久可更新）========== */
+const SCHOOL_INFO = {
+  address: '台中市太平區新福路 880 號',
+  phone: '04-2396-0585',
+  lineOA: '@143qbory',
+  highlight: '學期調整：時段二中高年級為 3 天班（G2 為浸潤班）、週時數 7.5 小時不變、同教材同進度同師資。',
+  scheduleSummary: [
+    '時段一 14:00-16:00：SA、1A、G1（國小低年級／銜接班）週一三四五',
+    '時段二 16:30-19:00：1A、3A、1C、4A、G2浸潤(16:30-18:45)、2B、3C（3 天班）',
+    '時段三 19:00-21:00：4B/3B 全民英檢、ES 幼兒美語(19:00-20:30)'
+  ].join('\n')
+};
+
+/* 快速查詢：關鍵字命中 → 直接回「標準句型」，不走 AI（更快、更不會出錯）*/
+function schoolFastAnswer_(userText) {
+  const t = String(userText || '');
+  if (/3\s?天班|三天班|改三天|改 ?3\s?天/.test(t))
+    return '本期時段二中高年級調整為 3 天班、每次 2.5 小時×3 天、週 7.5 小時同教材同進度同師資。';
+  if (/浸潤|G2/.test(t))
+    return 'G2 浸潤班週一至五 16:30-18:45、全英文環境。';
+  if (/英檢|全民英檢|GEPT/i.test(t))
+    return '時段三 19:00-21:00 開設 4B 全民英檢中級初試／複試、3B 初級初試／複試。';
+  if (/幼兒|學齡前|ES\s?班|幼班/.test(t))
+    return 'ES 幼兒美語週一二五 19:00-20:30、讓孩子提早接觸自然發音。';
+  if (/地址|位置|在哪|怎麼去|校址/.test(t))
+    return '校址：' + SCHOOL_INFO.address + '、電話 ' + SCHOOL_INFO.phone + '。';
+  if (/上課時間|幾點|時段|什麼時間/.test(t))
+    return SCHOOL_INFO.scheduleSummary;
+  return null;
+}
+
 /* ========== OpenAI 自然語意回覆 ========== */
 function ar2_aiReply_(userText, platform) {
+  // 快速查詢 short-circuit：命中關鍵字直接回、不耗 AI token
+  const fast = schoolFastAnswer_(userText);
+  if (fast) return fast;
+
   const apiKey = ar2_setting_('OPENAI_API_KEY', '');
   if (!apiKey) return null;
 
   const sysPrompt = [
     '你是「弋果美語太平新光分校」的 E 小編，專業親切。',
+    '',
+    '【本校開班資訊】',
+    SCHOOL_INFO.highlight,
+    SCHOOL_INFO.scheduleSummary,
+    '校址：' + SCHOOL_INFO.address + '、電話：' + SCHOOL_INFO.phone + '、LINE OA：' + SCHOOL_INFO.lineOA,
+    '',
     '回覆規則（嚴格遵守）：',
     '1. 繁體中文（台灣）、最多 80 字。',
     '2. 絕對禁用：免費抵註冊費、免費一堂課體驗、免試聽評測費、省 500 元、免費試讀、同校兩人組。',
