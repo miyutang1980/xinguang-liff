@@ -211,20 +211,20 @@
       <button class="btn ghost" onclick="setKpiRange(90)" id="btn-r90">90 天</button>
     </div>
     <div class="kpis" id="kpi-range-wrap">
-      <div class="kpi"><div class="label" id="lbl-ig-posts">30 天 IG 發文</div><div class="num" id="kpi-ig-posts">—</div></div>
-      <div class="kpi"><div class="label" id="lbl-ig-avg">30 天 IG 單篇平均</div><div class="num" id="kpi-ig-avg">—</div></div>
-      <div class="kpi"><div class="label" id="lbl-fb-posts">30 天 FB 發文</div><div class="num" id="kpi-fb-posts">—</div></div>
-      <div class="kpi"><div class="label" id="lbl-fb-avg">30 天 FB 單篇平均</div><div class="num" id="kpi-fb-avg">—</div></div>
+      <div class="kpi ig"><div class="label"><span class="dot ig"></span><span id="lbl-ig-posts">30 天 IG 發文</span></div><div class="num" id="kpi-ig-posts">—</div><div class="sub">Instagram 發佈量</div></div>
+      <div class="kpi ig"><div class="label"><span class="dot ig"></span><span id="lbl-ig-avg">30 天 IG 單篇平均</span></div><div class="num" id="kpi-ig-avg">—</div><div class="sub">讚+留言+分享+存檔</div></div>
+      <div class="kpi fb"><div class="label"><span class="dot fb"></span><span id="lbl-fb-posts">30 天 FB 發文</span></div><div class="num" id="kpi-fb-posts">—</div><div class="sub">Facebook 發佈量</div></div>
+      <div class="kpi fb"><div class="label"><span class="dot fb"></span><span id="lbl-fb-avg">30 天 FB 單篇平均</span></div><div class="num" id="kpi-fb-avg">—</div><div class="sub">讚+留言+分享</div></div>
     </div>
-    <div style="background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:14px">
-      <h3 style="margin:0 0 12px 0;font-size:15px">每日互動趨勢</h3>
+    <div class="card" style="margin-top:14px">
+      <h3 class="card-title">每日互動趨勢</h3>
       <div id="chart-daily-range" class="loading" style="min-height:120px">載入中...</div>
     </div>
     <div class="kpis" style="margin-top:14px">
-      <div class="kpi"><div class="label">資料總筆（歷史）</div><div class="num" id="ins-total">—</div></div>
-      <div class="kpi"><div class="label">7 天 Audience 觸及</div><div class="num" id="ins-reach">—</div></div>
-      <div class="kpi"><div class="label">7 天 Audience 互動</div><div class="num" id="ins-eng">—</div></div>
-      <div class="kpi"><div class="label">7 天 Audience 發文數</div><div class="num" id="ins-posts">—</div></div>
+      <div class="kpi gold"><div class="label"><span class="dot gold"></span>資料總筆（歷史）</div><div class="num" id="ins-total">—</div><div class="sub">Historical_Posts 累計</div></div>
+      <div class="kpi mint"><div class="label"><span class="dot mint"></span>7 天 Audience 觸及</div><div class="num" id="ins-reach">—</div><div class="sub">Reach、不重複人數</div></div>
+      <div class="kpi mint"><div class="label"><span class="dot mint"></span>7 天 Audience 互動</div><div class="num" id="ins-eng">—</div><div class="sub">Engagement</div></div>
+      <div class="kpi mint"><div class="label"><span class="dot mint"></span>7 天 Audience 發文數</div><div class="num" id="ins-posts">—</div><div class="sub">Posts</div></div>
     </div>
     <p style="color:var(--gray);font-size:13px;margin-top:8px">點上方 7/30/90 切換 IG/FB 範圍 KPI；底排為 Audience_Snapshot 7 天快照。</p>
 
@@ -602,16 +602,17 @@ function renderKpiRange(d) {
   var bars = daily.map(function(x){
     var hIg = Math.round((x.ig / maxV) * 100);
     var hFb = Math.round((x.fb / maxV) * 100);
-    return '<div style="display:inline-block;width:' + (100/daily.length).toFixed(2) + '%;text-align:center;vertical-align:bottom">' +
-      '<div style="display:flex;justify-content:center;align-items:flex-end;height:100px;gap:1px">' +
-        '<div title="IG ' + x.ig + '" style="width:6px;background:#e1306c;height:' + hIg + '%"></div>' +
-        '<div title="FB ' + x.fb + '" style="width:6px;background:#1877f2;height:' + hFb + '%"></div>' +
+    var w = (100/daily.length).toFixed(2);
+    return '<div style="display:inline-block;width:' + w + '%;text-align:center;vertical-align:bottom">' +
+      '<div style="display:flex;justify-content:center;align-items:flex-end;height:140px;gap:2px;padding:0 2px">' +
+        '<div title="IG ' + x.ig + '" style="width:9px;background:linear-gradient(180deg,#f09433,#bc1888);height:' + hIg + '%;border-radius:3px 3px 0 0;min-height:2px;box-shadow:0 1px 2px rgba(220,39,67,.25)"></div>' +
+        '<div title="FB ' + x.fb + '" style="width:9px;background:linear-gradient(180deg,#42a5f5,#1877f2);height:' + hFb + '%;border-radius:3px 3px 0 0;min-height:2px;box-shadow:0 1px 2px rgba(24,119,242,.25)"></div>' +
       '</div>' +
-      '<div style="font-size:9px;color:#888;transform:rotate(-45deg);transform-origin:center top;margin-top:6px;white-space:nowrap">' + escapeText(x.date) + '</div>' +
+      '<div style="font-size:9px;color:#888;transform:rotate(-45deg);transform-origin:center top;margin-top:8px;white-space:nowrap">' + escapeText(x.date) + '</div>' +
     '</div>';
   }).join('');
-  ch.innerHTML = '<div style="white-space:nowrap;overflow-x:auto;padding-bottom:30px">' + bars + '</div>' +
-    '<div style="margin-top:8px;font-size:12px;color:#666"><span style="display:inline-block;width:10px;height:10px;background:#e1306c;border-radius:2px;margin-right:4px"></span>IG　<span style="display:inline-block;width:10px;height:10px;background:#1877f2;border-radius:2px;margin:0 4px 0 12px"></span>FB</div>';
+  ch.innerHTML = '<div style="white-space:nowrap;overflow-x:auto;padding-bottom:36px">' + bars + '</div>' +
+    '<div style="margin-top:8px;font-size:12px;color:#666;text-align:center"><span style="display:inline-block;width:10px;height:10px;background:linear-gradient(180deg,#f09433,#bc1888);border-radius:2px;margin-right:5px;vertical-align:middle"></span>IG　<span style="display:inline-block;width:10px;height:10px;background:linear-gradient(180deg,#42a5f5,#1877f2);border-radius:2px;margin:0 5px 0 14px;vertical-align:middle"></span>FB</div>';
 }
 
 /* ========== Phase 4: 完整 6 區塊拆解 ========== */
