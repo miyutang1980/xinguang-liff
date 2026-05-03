@@ -204,16 +204,17 @@ function ar2_aiReply_(userText, platform) {
     '5. 對 25-34 歲媽媽說話、不對孩子說話。',
     '6. 結尾不要簽名、不要 emoji，回覆完即停（系統自動加 LINE 引導）。',
     '7. 若家長問價格 → 回「私訊由 E 小編 1 對 1 評估」、不直接報價。',
-    '8. 若內容超出範圍 → 回「請私訊由 E 小編 1 對 1 為您處理」。'
+    '8. 若內容超出範圍 → 回「請私訊由 E 小編 1 對 1 為您處理」。',
+    '9. 【身分絕對規則】全文只能用「E 小編」這 4 個字代表自己。嚴禁出現：Sarah、Tina、Amy、Jenny、Lisa、Mary、老師、小編（單獨出現）、顧問、專員、老師們、我們老師、本校老師、客服。只能說「E 小編」、不能說任何其他人名或職稱。'
   ].join('\n');
 
   const payload = {
     model: 'gpt-4o-mini',
     messages: [
       { role: 'system', content: sysPrompt },
-      { role: 'user', content: '平台：' + platform + '\n家長留言：' + userText + '\n請用 1-3 句回覆。' }
+      { role: 'user', content: '平台：' + platform + '\n家長留言：' + userText + '\n請用 1-3 句回覆。全文只能用「E 小編」代表自己、不能出現 Sarah、老師、顧問等任何其他稱呼。' }
     ],
-    temperature: 0.6,
+    temperature: 0.3,
     max_tokens: 150
   };
   const url = 'https' + '://api.openai.com/v1/chat/completions';
@@ -233,11 +234,24 @@ function ar2_aiReply_(userText, platform) {
     // 安全檢查：禁字過濾
     const banned = ['免費抵註冊費','免費一堂課體驗','免試聽評測費','省 500 元','省500元','免費試讀','同校兩人組'];
     for (const b of banned) if (txt.indexOf(b) >= 0) return null;
-    return String(txt).trim();
+    // 身分強制替換：任何其他人名/職稱 → E 小編
+    return ar2_normalizePersona_(String(txt).trim());
   } catch (e) {
     Logger.log('AI exception: ' + e);
     return null;
   }
+}
+
+/* ========== 身分正規化：任何人名/職稱強制換為 E 小編 ========== */
+function ar2_normalizePersona_(text) {
+  if (!text) return text;
+  let t = String(text);
+  t = t.replace(/(Sarah|Tina|Amy|Jenny|Lisa|Mary|Vicky|Anna|Cindy|Wendy|Sandy|Emily|Iris|Joy|Karen|Linda|Michelle|Nancy|Ruby|Sophia|Vivian)\s*(老師|顧問|專員)?/g, 'E 小編');
+  t = t.replace(/(我們|本校)?(老師們|老師)/g, 'E 小編');
+  t = t.replace(/(顧問|專員|客服|助教|期主任)/g, 'E 小編');
+  t = t.replace(/(?<!E\s?)小編/g, 'E 小編');
+  t = t.replace(/(E\s?小編\s*){2,}/g, 'E 小編');
+  return t;
 }
 
 /* ========== 負評偵測 ========== */
