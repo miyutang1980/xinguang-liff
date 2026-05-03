@@ -755,3 +755,35 @@ function getKpisRange(days) {
   
   return out;
 }
+
+/* ========== Phase 3: 高潛家長名單 ========== */
+function getHotLeads() {
+  const ss = SpreadsheetApp.openById(DASH_SS_ID);
+  const sh = ss.getSheetByName('高潛家長 Hot_Leads');
+  if (!sh || sh.getLastRow() < 2) return [];
+  const data = sh.getRange(2, 1, sh.getLastRow()-1, 11).getValues();
+  return data.map(function(r){
+    return {
+      user_id: String(r[0]||''),
+      user_name: String(r[1]||''),
+      platform: String(r[2]||''),
+      count: Number(r[3])||0,
+      first: r[4] instanceof Date ? Utilities.formatDate(r[4], 'Asia/Taipei', 'MM-dd HH:mm') : String(r[4]||''),
+      last: r[5] instanceof Date ? Utilities.formatDate(r[5], 'Asia/Taipei', 'MM-dd HH:mm') : String(r[5]||''),
+      tag: String(r[6]||''),
+      topic: String(r[7]||''),
+      action: String(r[8]||''),
+      line_link: String(r[9]||''),
+      contacted: String(r[10]||'')
+    };
+  }).filter(function(x){ return x.user_id; });
+}
+
+function refreshHotLeadsFromDashboard() {
+  // 觸發 auto_reply_engine_v2 的 refreshHotLeads_
+  if (typeof refreshHotLeads_ === 'function') {
+    refreshHotLeads_();
+    return { ok: true, msg: '已重新掃描' };
+  }
+  return { ok: false, msg: '請先部署 auto_reply_engine_v2.gs' };
+}

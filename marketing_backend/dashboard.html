@@ -123,6 +123,7 @@
   <button data-tab="interactions">互動中心 <span class="badge-count" id="badge-unreplied">0</span></button>
   <button data-tab="insights">數據儀表</button>
   <button data-tab="history">歷史分析</button>
+  <button data-tab="hotleads">🔥 高潛家長 <span class="badge-count" id="badge-hotleads">0</span></button>
   <button data-tab="bookings">預約管理 <span class="badge-count" id="badge-bookings">0</span></button>
   <button data-tab="rules">回覆規則</button>
 </nav>
@@ -260,6 +261,18 @@
     <div id="hist-top-posts" style="background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px">載入中...</div>
   </section>
 
+  <!-- ============= 高潛家長 ============= -->
+  <section id="tab-hotleads">
+    <div style="background:linear-gradient(135deg,#fff8e8,#ffe9d6);border:2px solid #ff8c42;border-radius:12px;padding:18px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h2 style="margin:0;color:#c75305;font-size:18px">🔥 高潛家長名單</h2>
+        <button class="btn ghost" onclick="loadHotLeads()" style="font-size:12px">重新掃描</button>
+      </div>
+      <div style="font-size:13px;color:#555">同一帳號互動 3 次以上自動標記；🔥 高溫 = 5+ 次，🌡 溫熱 = 3-4 次。點「 LINE 邀約」預填訊息在手機開。</div>
+    </div>
+    <div id="hotleads-list" class="loading">載入中...</div>
+  </section>
+
   <!-- ============= 預約管理 ============= -->
   <section id="tab-bookings">
     <h2>預約名單</h2>
@@ -350,6 +363,51 @@ function loadAll() {
   loadInsightsAuto();
   loadFutureSchedule();
   setKpiRange(currentRange);
+  loadHotLeads();
+}
+
+/* ========== Phase 3: 高潛家長 ========== */
+function loadHotLeads() {
+  var el = document.getElementById('hotleads-list');
+  if (el) el.innerHTML = '<div class="loading">扫描中...</div>';
+  google.script.run
+    .withSuccessHandler(function(d){ renderHotLeads(d || []); })
+    .withFailureHandler(function(err){ showError('getHotLeads', err); if(el) el.innerHTML = '<div style="color:#c00">載入失敗：' + (err && err.message || err) + '</div>'; })
+    .getHotLeads();
+}
+
+function renderHotLeads(arr) {
+  var el = document.getElementById('hotleads-list');
+  var badge = document.getElementById('badge-hotleads');
+  if (badge) badge.textContent = arr ? arr.length : 0;
+  if (!el) return;
+  if (!arr || !arr.length) {
+    el.innerHTML = '<div style="color:#999;text-align:center;padding:30px;background:#fff;border:1px solid var(--line);border-radius:8px">目前無高潛家長。等互動資料累積後自動標記。</div>';
+    return;
+  }
+  var rows = arr.map(function(u){
+    var pColor = u.platform === 'FB' ? '#1877f2' : '#e1306c';
+    var pBg = u.platform === 'FB' ? '#e7f3ff' : '#fce4ec';
+    var hot = u.count >= 5;
+    var tagBg = hot ? '#ffe0b2' : '#fff3cd';
+    var tagColor = hot ? '#bf360c' : '#856404';
+    var lineBtn = u.line_link ?
+      '<a href="' + escapeAttr(u.line_link) + '" target="_blank" style="display:inline-block;background:#06c755;color:#fff;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:600">LINE 邀約</a>' : '';
+    return '<div style="background:#fff;border:1px solid var(--line);border-left:4px solid ' + pColor + ';border-radius:8px;padding:14px;margin-bottom:8px;display:flex;gap:12px;align-items:center">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">' +
+          '<span style="font-weight:700;color:#222;font-size:14px">' + escapeText(u.user_name || u.user_id) + '</span>' +
+          '<span style="background:' + pBg + ';color:' + pColor + ';padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600">' + escapeText(u.platform) + '</span>' +
+          '<span style="background:' + tagBg + ';color:' + tagColor + ';padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600">' + escapeText(u.tag || '') + ' ' + u.count + ' 次</span>' +
+        '</div>' +
+        (u.topic ? '<div style="font-size:12px;color:#666;margin-top:2px">關注主題：' + escapeText(u.topic) + '</div>' : '') +
+        '<div style="font-size:12px;color:#888;margin-top:2px">最近互動：' + escapeText(u.last) + '　首次：' + escapeText(u.first) + '</div>' +
+        (u.action ? '<div style="font-size:12px;color:#c75305;margin-top:4px;font-weight:600">⏩ ' + escapeText(u.action) + '</div>' : '') +
+      '</div>' +
+      '<div style="flex-shrink:0">' + lineBtn + '</div>' +
+    '</div>';
+  }).join('');
+  el.innerHTML = rows;
 }
 
 function loadHistory() {
