@@ -444,6 +444,8 @@ var currentRange = 30;
 
 function loadAll() {
   document.getElementById('header-meta').textContent = '載入中...';
+
+  // 第一波：核心畫面（佇列 + 預約） —— 並行
   google.script.run
     .withSuccessHandler(function(d){
       allQueue = d || [];
@@ -455,23 +457,34 @@ function loadAll() {
     .withFailureHandler(function(err){ showError('getQueueData', err); allQueue = []; try{renderApproval();updateKPIs();}catch(e){} })
     .getQueueData();
   google.script.run
-    .withSuccessHandler(d => { allInteractions = d || []; renderInteractions(); })
-    .withFailureHandler(err => { showError('getInteractionsData', err); allInteractions = []; renderInteractions(); })
-    .getInteractionsData();
-  google.script.run
     .withSuccessHandler(d => { allBookings = d || []; renderBookings(); })
     .withFailureHandler(err => { showError('getBookingsData', err); allBookings = []; renderBookings(); })
     .getBookingsData();
-  google.script.run
-    .withSuccessHandler(d => { renderInsightsKPIs(d || {}); })
-    .withFailureHandler(err => { showError('getInsightsKPIs', err); })
-    .getInsightsKPIs();
-  loadHistory();
-  loadInsightsAuto();
-  loadFutureSchedule();
-  setKpiRange(currentRange);
-  loadHotLeads();
-  loadDeepAnalytics();
+
+  // 第二波：二級部件 —— 等 600ms 後才發，避免 Apps Script 並發搻塞
+  setTimeout(function(){
+    google.script.run
+      .withSuccessHandler(d => { allInteractions = d || []; renderInteractions(); })
+      .withFailureHandler(err => { showError('getInteractionsData', err); allInteractions = []; renderInteractions(); })
+      .getInteractionsData();
+    google.script.run
+      .withSuccessHandler(d => { renderInsightsKPIs(d || {}); })
+      .withFailureHandler(err => { showError('getInsightsKPIs', err); })
+      .getInsightsKPIs();
+  }, 600);
+
+  // 第三波：達達測、高潛家長、深度分析 —— 等 1500ms
+  setTimeout(function(){
+    loadHistory();
+    loadInsightsAuto();
+    loadFutureSchedule();
+    setKpiRange(currentRange);
+  }, 1500);
+
+  setTimeout(function(){
+    loadHotLeads();
+    loadDeepAnalytics();
+  }, 2200);
 }
 
 /* ========== Phase 3: 高潛家長 ========== */
