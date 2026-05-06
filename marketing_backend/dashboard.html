@@ -215,10 +215,15 @@
 
         <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">發布平台 <span style="color:#dc2626">*</span></label>
         <select id="reelPlatform" required style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px">
-          <option value="IG+FB Reels">IG + FB Reels（同步發）</option>
+          <option value="IG+FB+TT Reels">IG + FB + TikTok（三平台同步、推薦）</option>
+          <option value="IG+FB Reels">IG + FB Reels</option>
+          <option value="IG+TT Reels">IG + TikTok</option>
+          <option value="FB+TT Reels">FB + TikTok</option>
           <option value="IG Reels">只發 IG Reels</option>
           <option value="FB Reels">只發 FB Reels</option>
+          <option value="TT Reels">只發 TikTok</option>
         </select>
+        <p style="font-size:0.75rem;color:#6b7280;margin:-8px 0 12px">IG / TikTok 透過 Buffer 排程（Free 版 每 channel 10 篇 queue）、FB 走自家 API。</p>
 
         <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">標題</label>
         <input id="reelHeadline" type="text" placeholder="例：太平新光分校 外側測試剖析" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px" />

@@ -124,7 +124,11 @@ function publishRow_(sh, rowNum, r) {
     if (!/^https?:\/\//i.test(videoUrl)) {
       return { ok: false, error: 'Reel 需要公開的 .mp4 URL、請填在 Y 欄（影片連結）' };
     }
-    return publishReel_(platform, videoUrl, caption);
+    // 取得 D 列「平台」、Q 列若有「排程時間」字串、傳給 Buffer 排程
+    const dPart2 = r[1] ? Utilities.formatDate(new Date(r[1]), PE_TZ, 'yyyy-MM-dd') : '';
+    const tPart2 = r[2] ? (typeof r[2] === 'string' ? r[2] : Utilities.formatDate(new Date(r[2]), PE_TZ, 'HH:mm')) : '';
+    const scheduleAtIso = (dPart2 && tPart2) ? `${dPart2}T${tPart2}` : null;
+    return publishReel_(platform, videoUrl, caption, scheduleAtIso);
   }
 
   // 輪播分支
@@ -297,23 +301,134 @@ function publishIGPost_(imageUrl, caption) {
 /* =========================================================
  *  Reel 發布（IG Reels + FB Reels）
  * ========================================================= */
-function publishReel_(platform, videoUrl, caption) {
+function publishReel_(platform, videoUrl, caption, scheduleAtIso) {
+  // 路由策略：
+  //   FB → 自家 video_reels API（已驗證通、不耗 Buffer queue 配額）
+  //   IG → Buffer GraphQL（API Review 沒過、走 Buffer）
+  //   TT → Buffer GraphQL
+  // 平台字串可含：IG / FB / TT（例：IG+FB+TT、IG+TT）
   const wantIG = platform.indexOf('IG') >= 0;
   const wantFB = platform.indexOf('FB') >= 0;
+  const wantTT = platform.indexOf('TT') >= 0 || platform.indexOf('TikTok') >= 0;
 
-  let igRes = { ok: true }, fbRes = { ok: true };
-  if (wantIG) igRes = publishIGReel_(videoUrl, caption);
+  let igRes = { ok: true, skipped: true };
+  let fbRes = { ok: true, skipped: true };
+  let ttRes = { ok: true, skipped: true };
+
+  // FB 走自家
   if (wantFB) fbRes = publishFBReel_(videoUrl, caption);
 
-  if (wantIG && wantFB) {
-    if (igRes.ok && fbRes.ok) {
-      return { ok: true, post_id: `IG:${igRes.post_id} FB:${fbRes.post_id}`, post_url: (igRes.post_url||'') + ' | ' + (fbRes.post_url||'') };
-    }
-    return { ok: false, error: `IG: ${igRes.error||'OK'} | FB: ${fbRes.error||'OK'}` };
+  // IG / TikTok 走 Buffer
+  const bufferTargets = [];
+  if (wantIG) bufferTargets.push('IG');
+  if (wantTT) bufferTargets.push('TT');
+  if (bufferTargets.length > 0) {
+    const bRes = publishViaBuffer_(bufferTargets, videoUrl, caption, scheduleAtIso);
+    if (wantIG) igRes = bRes.IG || { ok: false, error: 'Buffer 無 IG 回應' };
+    if (wantTT) ttRes = bRes.TT || { ok: false, error: 'Buffer 無 TT 回應' };
   }
-  if (wantIG) return igRes;
-  if (wantFB) return fbRes;
-  return { ok: false, error: 'Reel 未指定平台' };
+
+  // 彙整結果
+  const parts = [], errs = [], ids = [], urls = [];
+  [['IG', wantIG, igRes], ['FB', wantFB, fbRes], ['TT', wantTT, ttRes]].forEach(([k, want, r]) => {
+    if (!want) return;
+    parts.push(k);
+    if (r.ok) {
+      if (r.post_id) ids.push(`${k}:${r.post_id}`);
+      if (r.post_url) urls.push(r.post_url);
+    } else {
+      errs.push(`${k}: ${r.error || '未知錯誤'}`);
+    }
+  });
+  if (parts.length === 0) return { ok: false, error: 'Reel 未指定平台' };
+  if (errs.length > 0)  return { ok: false, error: errs.join(' | ') };
+  return { ok: true, post_id: ids.join(' '), post_url: urls.join(' | ') };
+}
+
+/* =========================================================
+ *  Buffer GraphQL 發布 / 排程
+ *  targets: ['IG'] / ['TT'] / ['IG','TT']
+ *  scheduleAtIso：'2026-05-08T19:00' (台灣時區字串、自動轉 UTC ms)
+ *  回傳：{ IG: {ok,post_id}, TT: {ok,post_id} }
+ * ========================================================= */
+function publishViaBuffer_(targets, videoUrl, caption, scheduleAtIso) {
+  const apiKey = pe_getSetting_('BUFFER_API_KEY');
+  const orgId  = pe_getSetting_('BUFFER_ORG_ID');
+  const igCh   = pe_getSetting_('BUFFER_IG_CHANNEL_ID');
+  const ttCh   = pe_getSetting_('BUFFER_TIKTOK_CHANNEL_ID');
+  if (!apiKey) {
+    const err = { ok: false, error: '未設定 BUFFER_API_KEY' };
+    return { IG: err, TT: err };
+  }
+
+  // 排程模式：有時間 → customScheduled；無時間 → addToQueue
+  let mode = 'addToQueue';
+  let dueAt = null;
+  if (scheduleAtIso) {
+    // 解析 yyyy-MM-dd HH:mm（已是台灣時區）
+    const m = String(scheduleAtIso).replace('T', ' ').match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+    if (m) {
+      // Apps Script 用 Date 解析、再 toISOString → UTC ISO 字串
+      const localStr = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+08:00`;
+      const d = new Date(localStr);
+      if (!isNaN(d.getTime())) {
+        dueAt = d.toISOString();
+        mode = 'customScheduled';
+      }
+    }
+  }
+
+  const result = {};
+  targets.forEach(t => {
+    const channelId = (t === 'IG') ? igCh : ttCh;
+    if (!channelId) {
+      result[t] = { ok: false, error: `未設定 Buffer ${t} channel ID` };
+      return;
+    }
+    const metadata = (t === 'IG')
+      ? { instagram: { type: 'reel', shouldShareToFeed: true } }
+      : { tiktok: { title: (caption.split('\n')[0] || '').substring(0, 90) } };
+
+    const input = {
+      organizationId: orgId,
+      channelId: channelId,
+      text: caption,
+      mode: mode,
+      schedulingType: 'automatic',
+      assets: { videos: [{ url: videoUrl }] },
+      metadata: metadata,
+      source: 'xinguang_dashboard'
+    };
+    if (dueAt) input.dueAt = dueAt;
+
+    const res = UrlFetchApp.fetch('https://api.buffer.com/graphql', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + apiKey },
+      payload: JSON.stringify({
+        query: 'mutation($input: CreatePostInput!){ createPost(input:$input){ __typename ... on PostActionSuccess { post { id } } ... on NotFoundError { message } ... on UnauthorizedError { message } ... on UnexpectedError { message } ... on RestProxyError { message } ... on LimitReachedError { message } ... on InvalidInputError { message } } }',
+        variables: { input: input }
+      }),
+      muteHttpExceptions: true
+    });
+    const txt = res.getContentText();
+    let data;
+    try { data = JSON.parse(txt); } catch (e) { result[t] = { ok: false, error: 'Buffer 回傳非 JSON：' + txt.substring(0,200) }; return; }
+
+    if (data.errors && data.errors.length) {
+      result[t] = { ok: false, error: 'Buffer GraphQL 錯誤：' + JSON.stringify(data.errors).substring(0,300) };
+      return;
+    }
+    const cp = data.data && data.data.createPost;
+    if (cp && cp.__typename === 'PostActionSuccess' && cp.post && cp.post.id) {
+      result[t] = { ok: true, post_id: cp.post.id, post_url: '', queued: true };
+    } else if (cp && cp.message) {
+      result[t] = { ok: false, error: `Buffer ${cp.__typename || ''}：${cp.message}` };
+    } else {
+      result[t] = { ok: false, error: 'Buffer 未知回應：' + txt.substring(0,300) };
+    }
+  });
+  return result;
 }
 
 /* -------- IG Reels (真的 Reels API) -------- */
