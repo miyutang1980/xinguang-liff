@@ -227,7 +227,7 @@
         <textarea id="reelBody" required rows="4" placeholder="科學為主、英文為媒。精細檢測 50 分鐘、E 小編 1 對 1…" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px;font-family:inherit"></textarea>
 
         <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">Hashtags</label>
-        <input id="reelHashtags" type="text" value="#太平新光分校 #弋果美語 #太平美語 #英檢" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px" />
+        <input id="reelHashtags" type="text" value="#太平新光分校 #太平美語 #英檢" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px" />
 
         <label style="display:block;font-size:0.85rem;font-weight:700;margin-bottom:4px">CTA</label>
         <input id="reelCta" type="text" value="📲 LINE @143qbory、主動人員幫你預約" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem;margin-bottom:12px" />
@@ -1643,7 +1643,10 @@ function closeImagePicker() {
 
 function escape_(s) {
   if (s === undefined || s === null) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  // 防護： Sheets epoch zero (1899-12-30) 並非真的日期，顯示為空
+  var str = String(s);
+  if (/^1899-12-30/.test(str) || /^1900-01-/.test(str)) return '';
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 loadAll();

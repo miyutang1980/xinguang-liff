@@ -230,7 +230,7 @@ function ar2_aiReply_(userText, platform) {
   if (!apiKey) return null;
 
   const sysPrompt = [
-    '你是「弋果美語太平新光分校」的 E 小編，專業親切。',
+    '你是「太平新光分校」的 E 小編，專業親切。',
     '',
     '【本校開班資訊】',
     SCHOOL_INFO.highlight,

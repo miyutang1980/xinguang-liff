@@ -38,6 +38,22 @@ function doPost(e) {
 
 /* ========== Server functions for client to call ========== */
 
+// 判斷是否為 Sheets epoch zero（1899-12-30 代表「空 Date」）
+function _isEmptyDate(d) {
+  if (!(d instanceof Date)) return false;
+  return d.getFullYear() <= 1900;
+}
+
+// 安全格式化日期：空 / 1899 都返 ''
+function _safeFmtDate(v, fmt) {
+  if (v === null || v === undefined || v === '') return '';
+  if (v instanceof Date) {
+    if (_isEmptyDate(v)) return '';
+    return Utilities.formatDate(v, 'Asia/Taipei', fmt || 'yyyy-MM-dd HH:mm');
+  }
+  return String(v);
+}
+
 function getQueueData() {
   const sh = SpreadsheetApp.openById(DASH_SS_ID).getSheetByName('排程佇列 Posting_Queue');
   const last = sh.getLastRow();
@@ -54,7 +70,7 @@ function getQueueData() {
       if (v === null || v === undefined || v === '') {
         o[headers[j]] = '';
       } else if (v instanceof Date) {
-        o[headers[j]] = Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm');
+        o[headers[j]] = _isEmptyDate(v) ? '' : Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm');
       } else if (typeof v === 'number' || typeof v === 'boolean') {
         o[headers[j]] = v;
       } else {
@@ -79,7 +95,7 @@ function getInteractionsData() {
     for (var j = 0; j < headers.length; j++) {
       var v = r[j];
       o[headers[j]] = (v === null || v === undefined || v === '') ? '' :
-        (v instanceof Date) ? Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm') :
+        (v instanceof Date) ? (_isEmptyDate(v) ? '' : Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm')) :
         (typeof v === 'number' || typeof v === 'boolean') ? v : String(v);
     }
     out.push(o);
@@ -117,7 +133,7 @@ function getBookingsData() {
     for (var j = 0; j < headers.length; j++) {
       var v = r[j];
       o[headers[j]] = (v === null || v === undefined || v === '') ? '' :
-        (v instanceof Date) ? Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm') :
+        (v instanceof Date) ? (_isEmptyDate(v) ? '' : Utilities.formatDate(v, 'Asia/Taipei', 'yyyy-MM-dd HH:mm')) :
         (typeof v === 'number' || typeof v === 'boolean') ? v : String(v);
     }
     out.push(o);
