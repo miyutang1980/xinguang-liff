@@ -302,11 +302,12 @@ function publishIGPost_(imageUrl, caption) {
  *  Reel 發布（IG Reels + FB Reels）
  * ========================================================= */
 function publishReel_(platform, videoUrl, caption, scheduleAtIso) {
-  // 路由策略：
-  //   FB → 自家 video_reels API（已驗證通、不耗 Buffer queue 配額）
-  //   IG → Buffer GraphQL（API Review 沒過、走 Buffer）
-  //   TT → Buffer GraphQL
-  // 平台字串可含：IG / FB / TT（例：IG+FB+TT、IG+TT）
+  // 路由策略（全部走 Buffer）：
+  //   IG / FB / TT 三平台都透過 Buffer GraphQL 排程
+  //   原因：
+  //     - IG：App Review 沒過、API 需透過 Buffer
+  //     - FB：自家以 R2 URL 送、FB crawler 對無 robots.txt 的 R2 回 403
+  //     - TT：API 不公開、Buffer 是唯一選項
   const wantIG = platform.indexOf('IG') >= 0;
   const wantFB = platform.indexOf('FB') >= 0;
   const wantTT = platform.indexOf('TT') >= 0 || platform.indexOf('TikTok') >= 0;
@@ -315,16 +316,14 @@ function publishReel_(platform, videoUrl, caption, scheduleAtIso) {
   let fbRes = { ok: true, skipped: true };
   let ttRes = { ok: true, skipped: true };
 
-  // FB 走自家
-  if (wantFB) fbRes = publishFBReel_(videoUrl, caption);
-
-  // IG / TikTok 走 Buffer
   const bufferTargets = [];
   if (wantIG) bufferTargets.push('IG');
+  if (wantFB) bufferTargets.push('FB');
   if (wantTT) bufferTargets.push('TT');
   if (bufferTargets.length > 0) {
     const bRes = publishViaBuffer_(bufferTargets, videoUrl, caption, scheduleAtIso);
     if (wantIG) igRes = bRes.IG || { ok: false, error: 'Buffer 無 IG 回應' };
+    if (wantFB) fbRes = bRes.FB || { ok: false, error: 'Buffer 無 FB 回應' };
     if (wantTT) ttRes = bRes.TT || { ok: false, error: 'Buffer 無 TT 回應' };
   }
 
@@ -378,19 +377,26 @@ function publishViaBuffer_(targets, videoUrl, caption, scheduleAtIso) {
     }
   }
 
+  const fbCh   = pe_getSetting_('BUFFER_FB_CHANNEL_ID');
   const result = {};
   targets.forEach(t => {
-    const channelId = (t === 'IG') ? igCh : ttCh;
+    let channelId, metadata;
+    if (t === 'IG') {
+      channelId = igCh;
+      metadata = { instagram: { type: 'reel', shouldShareToFeed: true } };
+    } else if (t === 'FB') {
+      channelId = fbCh;
+      metadata = { facebook: { type: 'reel' } };
+    } else { // TT
+      channelId = ttCh;
+      metadata = { tiktok: { title: (caption.split('\n')[0] || '').substring(0, 90) } };
+    }
     if (!channelId) {
       result[t] = { ok: false, error: `未設定 Buffer ${t} channel ID` };
       return;
     }
-    const metadata = (t === 'IG')
-      ? { instagram: { type: 'reel', shouldShareToFeed: true } }
-      : { tiktok: { title: (caption.split('\n')[0] || '').substring(0, 90) } };
 
     const input = {
-      organizationId: orgId,
       channelId: channelId,
       text: caption,
       mode: mode,
