@@ -360,21 +360,25 @@ function publishViaBuffer_(targets, videoUrl, caption, scheduleAtIso) {
     return { IG: err, TT: err };
   }
 
-  // 排程模式：有時間 → customScheduled；無時間 → addToQueue
-  let mode = 'addToQueue';
+  // 排程模式：有未來時間 → customScheduled；無/過期 → 現在+5分鐘
+  // 原因：Buffer 拒絕過期 dueAt、所以一律保證未來時間
+  let mode = 'customScheduled';
   let dueAt = null;
+  const nowMs = Date.now();
+  const minFuture = nowMs + 5 * 60 * 1000; // 5 分鐘後、讓 Buffer 有足夠間距
   if (scheduleAtIso) {
-    // 解析 yyyy-MM-dd HH:mm（已是台灣時區）
     const m = String(scheduleAtIso).replace('T', ' ').match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
     if (m) {
-      // Apps Script 用 Date 解析、再 toISOString → UTC ISO 字串
       const localStr = `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:00+08:00`;
       const d = new Date(localStr);
-      if (!isNaN(d.getTime())) {
+      if (!isNaN(d.getTime()) && d.getTime() > minFuture) {
         dueAt = d.toISOString();
-        mode = 'customScheduled';
       }
     }
+  }
+  // 未能解析或時間已過、退回「現在+5分鐘」
+  if (!dueAt) {
+    dueAt = new Date(minFuture).toISOString();
   }
 
   const fbCh   = pe_getSetting_('BUFFER_FB_CHANNEL_ID');
