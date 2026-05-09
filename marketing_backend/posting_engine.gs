@@ -728,12 +728,13 @@ function appendReelToQueue(payload) {
     const newId = 'R' + Utilities.formatDate(new Date(), PE_TZ, 'yyyyMMddHHmmss');
 
     // 寫入一列：A=ID, B=日期, C=時間, D=平台, E=主題, F=形式, G=主圖URL(借位放影片URL方便預覽), H=縮圖, I=備註,
-    //        J=headline, K=body, L=hashtags, M=cta, N=圖片審(自動過,Reel 沒圖), O=文案審(待審), P=排程狀態(草稿), Q=發文時間, R=post_id, S=post_url, T=錯誤,
+    //        J=headline, K=body, L=hashtags, M=cta, N=圖片審(過), O=文案審(過), P=排程狀態(已排程), Q=發文時間, R=post_id, S=post_url, T=錯誤,
     //        U/V/W=保留, X=發布類型(reel), Y=影片URL
+    // 預排表單提交 = 已決定發該貼文、自動雙審過 + 已排程、不需手動過審
     const row = [
       newId, dPart, tPart, plat, '短影音 Reel', 'Reel', videoUrl, '', '',
       headline, body, hashtags, cta,
-      '過', '待審', '草稿', '', '', '', '',
+      '過', '過', '已排程', '', '', '', '',
       '', '', '',
       'reel', videoUrl, ''
     ];
