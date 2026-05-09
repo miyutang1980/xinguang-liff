@@ -744,3 +744,12 @@ function appendReelToQueue(payload) {
     return { ok: false, error: String(e) };
   }
 }
+
+/* =========================================================
+ *  testPublish：手動觸發某列發布、繞過時間檢查
+ *  用法：把下面 rowNum 改成 Sheet 的列號 → ▶ 執行 → 看執行記錄
+ * ========================================================= */
+function testPublish() {
+  const rowNum = 14;   // ⚠️ 改成你那列在 Sheet 的列號
+  publishOneRow(rowNum);
+}
