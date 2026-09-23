@@ -16,6 +16,9 @@
 const DASH_SS_ID = '1DybgWBdCyvkEijMyaE46rKLtQD9J2ImjU8xeYCKSKnA';
 
 function doGet(e) {
+  if (e && e.parameter && e.parameter.lct === 'ranking') {
+    return lineClickRankingResponse_(e);
+  }
   const tpl = HtmlService.createTemplateFromFile('dashboard');
   return tpl.evaluate()
     .setTitle('太平新光社群行銷後台')
